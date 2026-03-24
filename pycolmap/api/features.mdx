@@ -313,3 +313,87 @@ pycolmap.verify_matches(
     options=pycolmap.TwoViewGeometryOptions(),
 )
 ```
+
+---
+
+## SfM pipeline functions
+
+After feature extraction and matching, these functions run the reconstruction pipelines.
+
+### incremental_mapping
+
+Incremental SfM: registers images one at a time and triangulates 3D points.
+
+```python
+maps = pycolmap.incremental_mapping(
+    database_path=database_path,
+    image_path=image_path,
+    output_path=output_path,
+    options=pycolmap.IncrementalPipelineOptions(),
+    input_path="",          # optional: continue from existing reconstruction
+    initial_image_pair_callback=None,
+    next_image_callback=None,
+)
+# Returns: Dict[int, pycolmap.Reconstruction]
+reconstruction = maps[0]
+```
+
+### global_mapping
+
+Global SfM (GLOMAP): solves for all camera poses simultaneously via rotation averaging.
+
+```python
+maps = pycolmap.global_mapping(
+    database_path=database_path,
+    image_path=image_path,
+    output_path=output_path,
+    options=pycolmap.GlobalPipelineOptions(),
+)
+# Returns: Dict[int, pycolmap.Reconstruction]
+```
+
+### calibrate_view_graph
+
+Calibrate focal lengths from fundamental matrices in the database. Recommended before `global_mapping` when reliable intrinsics are not available.
+
+<Warning>
+  This function modifies the database **in-place**. Work on a copy of your database before running it.
+</Warning>
+
+```python
+success = pycolmap.calibrate_view_graph(
+    database_path=database_path,
+    options=pycolmap.ViewGraphCalibrationOptions(),
+)
+```
+
+### triangulate_points
+
+Triangulate 3D points from a reconstruction with known camera poses.
+
+```python
+reconstruction = pycolmap.triangulate_points(
+    reconstruction=reconstruction,
+    database_path=database_path,
+    image_path=image_path,
+    output_path=output_path,
+    clear_points=True,
+    options=pycolmap.IncrementalPipelineOptions(),
+    refine_intrinsics=False,
+)
+```
+
+### bundle_adjustment
+
+Jointly refine 3D points and camera poses of a reconstruction.
+
+```python
+pycolmap.bundle_adjustment(
+    reconstruction=reconstruction,
+    options=pycolmap.BundleAdjustmentOptions(
+        refine_focal_length=True,
+        refine_principal_point=False,
+        refine_extra_params=True,
+    ),
+)
+```

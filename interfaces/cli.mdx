@@ -21,6 +21,12 @@ List all available commands:
 colmap help
 ```
 
+Show the COLMAP version and build information:
+
+```bash
+colmap version
+```
+
 Show options for any command:
 
 ```bash
@@ -646,6 +652,16 @@ colmap global_mapper \
       --input_path sparse/0 \
       --output_path sparse/0_cleaned \
       --image_names_path images_to_delete.txt
+    ```
+  </Accordion>
+  <Accordion title="image_undistorter_standalone">
+    Undistort images using a text file of camera parameters, without requiring a full COLMAP database or reconstruction. Useful for applying a known calibration to a set of images.
+
+    ```bash
+    colmap image_undistorter_standalone \
+      --input_file cameras.txt \
+      --image_path images/ \
+      --output_path undistorted/
     ```
   </Accordion>
   <Accordion title="image_rectifier">
