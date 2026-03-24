@@ -1,0 +1,199 @@
+---
+title: "Database"
+description: "How COLMAP uses a SQLite database to store cameras, images, features, matches, and geometric verifications across pipeline stages."
+---
+
+COLMAP stores all extracted feature information in a single SQLite database file (`.db`). This database is the persistent handoff point between the pipeline stages of feature extraction, feature matching, and reconstruction.
+
+## Database tables
+
+The database contains the following tables:
+
+| Table | Contents |
+|---|---|
+| `rigs` | Rig definitions and sensor-to-rig transforms |
+| `cameras` | Intrinsic parameter sets (model, width, height, params blob) |
+| `frames` | Timestamped rig instances |
+| `images` | Image names, camera IDs, frame IDs |
+| `keypoints` | Detected 2D feature locations (and optionally scale/orientation/affine shape) |
+| `descriptors` | Feature appearance descriptors (SIFT or ALIKED) |
+| `matches` | Raw feature matches between image pairs |
+| `two_view_geometries` | Geometrically verified matches with F/E/H matrices |
+
+## What gets stored at each stage
+
+<Steps>
+  <Step title="Feature extraction">
+    The `cameras`, `rigs`, `frames`, and `images` tables are populated with metadata read from image files (or EXIF). The `keypoints` and `descriptors` tables are populated with the extracted local features.
+
+    Keypoints are stored as row-major `float32` binary blobs. The first two columns are always the X and Y pixel coordinates. If the keypoints have 4 columns, the third is scale and the fourth is orientation (SIFT convention). If they have 6 columns, the last four encode an affine shape.
+
+    Descriptors are stored as row-major binary blobs:
+    - **SIFT**: `uint8`, 128 dimensions (128 bytes per feature)
+    - **ALIKED**: `float32`, 128 dimensions (512 bytes per feature)
+
+    The pixel coordinate convention is: upper-left corner is `(0, 0)`, center of the upper-left pixel is `(0.5, 0.5)`.
+  </Step>
+  <Step title="Feature matching">
+    The `matches` table receives raw putative matches between image pairs. After geometric verification, inlier matches plus the estimated fundamental (F), essential (E), and homography (H) matrices are written to the `two_view_geometries` table.
+
+    **Only data in `two_view_geometries` is used by the reconstruction pipeline.** The `matches` table is an intermediate result.
+  </Step>
+  <Step title="Reconstruction">
+    The reconstruction (SfM) stage reads verified matches from the database but writes its output — the sparse model (cameras, images, points3D) — to disk as binary or text files, not back into the database.
+  </Step>
+</Steps>
+
+## Cameras and images relationship
+
+The relation between cameras and images is 1-to-N. One camera record can be shared by many images, reflecting the fact that a single physical camera with fixed intrinsics captures many photos.
+
+- Intrinsic parameters (focal length, principal point, distortion) are stored as a contiguous `float64` binary blob in the cameras table, ordered as specified by the camera model.
+- The `name` column in the images table is the unique relative path within the image folder. The database file and image folder can be moved to different locations as long as the relative folder structure is preserved.
+- When manually inserting images and cameras, all identifiers must be positive and non-zero: `image_id > 0` and `camera_id > 0`.
+
+## Image pair encoding
+
+Matches between image pairs are identified by a `pair_id`, computed as a row-major linear index into the upper-triangular match matrix:
+
+```python
+def image_ids_to_pair_id(image_id1, image_id2):
+    if image_id1 > image_id2:
+        return 2147483647 * image_id2 + image_id1
+    else:
+        return 2147483647 * image_id1 + image_id2
+
+def pair_id_to_image_ids(pair_id):
+    image_id2 = pair_id % 2147483647
+    image_id1 = (pair_id - image_id2) / 2147483647
+    return image_id1, image_id2
+```
+
+This scheme limits the maximum number of images to 2,147,483,647 (the maximum value of a signed 32-bit integer). Match blobs are row-major `uint32` matrices where the left column indexes features in `image_id1` and the right column indexes features in `image_id2`.
+
+## Creating a database
+
+<Tabs>
+  <Tab title="CLI">
+    ```bash
+    colmap database_creator --database_path /path/to/database.db
+    ```
+
+    You can also create the database by running feature extraction for the first time, which initializes it automatically.
+  </Tab>
+  <Tab title="GUI">
+    Open the COLMAP GUI and create a new project via **File > New project**. The GUI will prompt you to specify a database path and initialize it.
+  </Tab>
+  <Tab title="Python (pycolmap)">
+    ```python
+    import pycolmap
+
+    db = pycolmap.Database("/path/to/database.db")
+    ```
+
+    The database is created if it does not exist.
+  </Tab>
+</Tabs>
+
+## Accessing the database
+
+<Tabs>
+  <Tab title="Python (pycolmap)">
+    pycolmap exposes a typed API for reading and writing all database tables:
+
+    ```python
+    import pycolmap
+
+    db = pycolmap.Database("/path/to/database.db")
+
+    # Read all cameras and images
+    cameras = db.read_all_cameras()
+    images = db.read_all_images()
+
+    # Read keypoints for a specific image
+    keypoints = db.read_keypoints(image_id=1)
+
+    # Read verified matches for an image pair
+    two_view_geometry = db.read_two_view_geometry(image_id1=1, image_id2=2)
+    ```
+  </Tab>
+  <Tab title="SQLite (Python)">
+    You can also read the database directly using Python's built-in `sqlite3` module for inspection or custom workflows:
+
+    ```python
+    import sqlite3
+    import numpy as np
+
+    conn = sqlite3.connect("/path/to/database.db")
+    cursor = conn.cursor()
+
+    # List all images
+    cursor.execute("SELECT image_id, name, camera_id FROM images")
+    for row in cursor.fetchall():
+        print(row)
+
+    # Read keypoints for image_id=1
+    cursor.execute("SELECT rows, cols, data FROM keypoints WHERE image_id=1")
+    row = cursor.fetchone()
+    if row:
+        rows, cols, data = row
+        keypoints = np.frombuffer(data, dtype=np.float32).reshape(rows, cols)
+        print(f"{rows} keypoints with {cols} columns each")
+
+    conn.close()
+    ```
+  </Tab>
+  <Tab title="SQLite browser">
+    Any SQLite browser (e.g., DB Browser for SQLite) can open a COLMAP database file directly to inspect tables, view blob sizes, and run SQL queries.
+  </Tab>
+</Tabs>
+
+## Database management commands
+
+| Command | Purpose |
+|---|---|
+| `colmap database_creator` | Initialize an empty database with the required schema |
+| `colmap database_cleaner` | Remove selected data from a database (e.g., clear matches) |
+| `colmap database_merger` | Merge two databases into a single output database |
+
+```bash
+# Create a new database
+colmap database_creator --database_path database.db
+
+# Merge two databases
+colmap database_merger \
+    --database_path1 db1.db \
+    --database_path2 db2.db \
+    --merged_database_path merged.db
+```
+
+## Importing custom features
+
+If you want to use custom keypoints or descriptors from another system, you can import them directly into the database. The reconstruction pipeline will then use these features for matching and SfM.
+
+```python
+import pycolmap
+import numpy as np
+
+db = pycolmap.Database("/path/to/database.db")
+
+# Write custom keypoints (N x 2 float32 array of x, y locations)
+keypoints = np.array([[100.5, 200.5], [300.5, 400.5]], dtype=np.float32)
+db.write_keypoints(image_id=1, keypoints=keypoints)
+
+# Write custom descriptors (N x D float32 or uint8 array)
+descriptors = np.zeros((2, 128), dtype=np.uint8)
+db.write_descriptors(image_id=1, descriptors=descriptors)
+```
+
+<Note>
+For feature matching and geometric verification, every image must have a corresponding keypoints and descriptors entry. Only vocabulary tree matching with fast spatial verification requires the full keypoint geometry (scale, orientation). For all other matchers, only the X and Y coordinates are required — the remaining columns can be set to zero.
+</Note>
+
+## Rigs and frames in the database
+
+The relation between rigs and sensors is 1-to-N, with one sensor designated as the reference sensor that defines the rig's origin. Each sensor must belong to exactly one rig.
+
+The relation between rigs and frames is also 1-to-N. A frame defines a specific instance of a rig with all or a subset of sensors exposed at the same time.
+
+In a default single-camera setup, each camera is automatically assigned to its own rig, and each image belongs to its own frame. These tables are populated automatically during feature extraction and do not require manual configuration.

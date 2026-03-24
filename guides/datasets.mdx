@@ -1,0 +1,129 @@
+---
+title: "Datasets"
+description: "Sample datasets for testing COLMAP and guidelines for capturing images that produce high-quality reconstructions."
+---
+
+## Sample datasets
+
+A number of datasets are available for download at [https://demuc.de/colmap/datasets/](https://demuc.de/colmap/datasets/).
+
+<CardGroup cols={2}>
+  <Card title="Gerrard Hall" icon="building">
+    100 high-resolution images of Gerrard Hall at UNC Chapel Hill, taken with the same camera but different focus using a wide-angle lens.
+  </Card>
+  <Card title="Graham Hall" icon="building">
+    1273 high-resolution images of the interior and exterior of Graham Memorial Hall at UNC Chapel Hill, taken with the same camera but different focus using a wide-angle lens.
+  </Card>
+  <Card title="Person Hall" icon="building">
+    330 high-resolution images of Person Hall at UNC Chapel Hill, taken with the same camera using a wide-angle lens.
+  </Card>
+  <Card title="South Building" icon="building">
+    128 images of the South building at UNC Chapel Hill, taken with the same camera. Kindly provided by Christopher Zach.
+  </Card>
+</CardGroup>
+
+### Sample reconstructions
+
+Sample reconstructions produced by COLMAP:
+
+**Sparse reconstructions**
+- [https://youtu.be/PmXqdfBQxfQ](https://youtu.be/PmXqdfBQxfQ)
+- [https://youtu.be/DIv1aGKqSIk](https://youtu.be/DIv1aGKqSIk)
+
+**Dense reconstructions**
+- [https://youtu.be/11awtGWSqQU](https://youtu.be/11awtGWSqQU)
+
+## Data types
+
+COLMAP's `automatic_reconstructor` accepts three data types that affect how images are matched.
+
+<Tabs>
+  <Tab title="INDIVIDUAL">
+    Unordered photos taken from arbitrary viewpoints with no assumed temporal relationship.
+
+    - Best for photo collections, tourist photos, and any set of images where capture order is irrelevant
+    - Uses vocabulary tree or exhaustive matching to find overlapping image pairs
+
+    ```bash
+    colmap automatic_reconstructor \
+        --workspace_path /path/to/workspace \
+        --image_path /path/to/images \
+        --data_type INDIVIDUAL
+    ```
+  </Tab>
+  <Tab title="VIDEO">
+    Sequential frames extracted from a video, where adjacent frames have high overlap.
+
+    - Uses sequential matching, which only compares nearby frames in the sequence
+    - Much faster than exhaustive matching for large frame counts
+    - Assumes consistent frame order in the image directory
+
+    ```bash
+    colmap automatic_reconstructor \
+        --workspace_path /path/to/workspace \
+        --image_path /path/to/frames \
+        --data_type VIDEO
+    ```
+  </Tab>
+  <Tab title="INTERNET">
+    Crowd-sourced images downloaded from the internet, such as images of a landmark from many different photographers.
+
+    - High variability in viewpoints, illumination, and image quality
+    - Uses vocabulary tree matching to efficiently find overlapping pairs in large collections
+
+    ```bash
+    colmap automatic_reconstructor \
+        --workspace_path /path/to/workspace \
+        --image_path /path/to/images \
+        --data_type INTERNET
+    ```
+  </Tab>
+</Tabs>
+
+## Capture guidelines
+
+The quality of the reconstruction depends heavily on the quality of the input images and how they are captured. Follow these guidelines for best results.
+
+### Scene texture
+
+<Warning>
+COLMAP's feature matching relies on visual texture. Textureless surfaces (white walls, smooth floors, sky) produce very few keypoints and will be poorly reconstructed or not reconstructed at all.
+</Warning>
+
+Choose scenes with rich surface texture — brick, stone, patterned surfaces, or any surface with distinctive visual features.
+
+### Illumination
+
+Capture images under **similar illumination conditions**:
+
+- Avoid mixing images taken at different times of day or in different weather
+- Avoid images where the scene is partially in shadow and partially in bright sunlight
+- Consistent lighting makes feature matching more reliable
+
+### Visual overlap
+
+Ensure **high visual overlap** between images:
+
+- Every part of the scene should appear in **at least 3 images** for reliable triangulation
+- For buildings or objects, move in small steps and maintain significant overlap (50–80%) between adjacent shots
+- Isolated images with little or no overlap to the rest of the collection cannot be registered
+
+### Viewpoints
+
+Capture the scene from **different viewpoints** to enable triangulation:
+
+- Purely planar image sets (all images taken from the same height and direction) can lead to degenerate reconstructions
+- Include images from multiple heights, angles, and distances around the subject
+- For buildings, photograph corners and sides from different approach angles
+
+### Video frame rate
+
+When using video as input:
+
+- Avoid extracting every single frame from a high-frame-rate video — adjacent frames may be too similar, creating redundant data and slowing matching
+- Extract frames at a rate that maintains moderate overlap between consecutive frames (e.g., every 5th–10th frame for typical walking speeds)
+- Too few frames risks gaps in coverage; too many frames creates unnecessary redundancy
+
+<Tip>
+For handheld video capture, moving slowly and steadily produces better frame overlap than rapid motion. Avoid motion blur — blur degrades feature detection.
+</Tip>

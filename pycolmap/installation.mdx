@@ -1,0 +1,89 @@
+---
+title: Installation
+description: Install PyCOLMAP from PyPI using pip, or build from source after installing COLMAP's C++ library.
+---
+
+## Pre-built wheels
+
+Pre-built wheels for Linux, macOS, and Windows are published to PyPI at each COLMAP release.
+
+```bash
+pip install pycolmap
+```
+
+### CUDA-accelerated wheels
+
+For GPU-accelerated feature extraction and matching on Linux, use the CUDA 12 wheel:
+
+```bash
+pip install pycolmap-cuda12
+```
+
+<Note>
+  CUDA wheels are currently only available for Linux.
+</Note>
+
+## Building from source
+
+Build PyCOLMAP from source when you need a version not yet on PyPI, or when you want to customize the build.
+
+<Steps>
+  <Step title="Install COLMAP from source">
+    Follow the [COLMAP installation instructions](https://colmap.github.io/install.html) to build and install the C++ library. Make sure to run `ninja install` so the library is discoverable by the Python build.
+
+    ```bash
+    mkdir build && cd build
+    cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install
+    ninja install
+    ```
+  </Step>
+
+  <Step title="Build PyCOLMAP">
+    From the repository root, install the Python package:
+
+    <Tabs>
+      <Tab title="Linux / macOS">
+        ```bash
+        python -m pip install .
+        ```
+
+        For faster incremental rebuilds during development:
+
+        ```bash
+        colmap_DIR=./install ./python/incremental_build.sh
+        ```
+      </Tab>
+      <Tab title="Windows (PowerShell)">
+        After installing COLMAP via VCPKG:
+
+        ```powershell
+        python -m pip install . `
+            --cmake.define.CMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            --cmake.define.VCPKG_TARGET_TRIPLET="x64-windows"
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Verify the installation">
+    ```python
+    import pycolmap
+    print(pycolmap.__version__)
+    print(pycolmap.has_cuda)
+    ```
+  </Step>
+</Steps>
+
+## PyCeres (optional)
+
+Some PyCOLMAP features — specifically the cost functions in `pycolmap.cost_functions` — require [PyCeres](https://github.com/cvg/pyceres). Install it from PyPI:
+
+```bash
+pip install pyceres
+```
+
+Or build it from source following the same pattern as PyCOLMAP. PyCeres must be built against the same Ceres Solver version as PyCOLMAP.
+
+<Warning>
+  Importing `pycolmap.cost_functions` without PyCeres installed will raise a `RuntimeError`. The rest of PyCOLMAP functions correctly without it.
+</Warning>

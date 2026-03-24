@@ -1,0 +1,181 @@
+---
+title: "Dense Reconstruction"
+description: "Compute dense depth maps, fuse them into a colored point cloud, and recover surface geometry using COLMAP's MVS pipeline."
+---
+
+Dense reconstruction (Multi-View Stereo) takes the sparse reconstruction output and produces dense depth and normal maps for each registered image, fuses them into a 3D point cloud, and optionally reconstructs a surface mesh. COLMAP's dense pipeline is CUDA-accelerated and requires a CUDA-capable GPU.
+
+<Warning>
+Dense reconstruction requires CUDA. Build COLMAP with `-DCUDA_ENABLED=ON` and `-DMVS_ENABLED=ON`. When running without an attached display, COLMAP automatically switches to CUDA mode.
+</Warning>
+
+## Pipeline overview
+
+<Steps>
+  <Step title="Image undistortion">
+    Undistort images and export the sparse model in a format the MVS workspace expects. Run `colmap image_undistorter`.
+  </Step>
+  <Step title="PatchMatch stereo">
+    Compute per-pixel depth and normal maps for every registered image. Run `colmap patch_match_stereo`.
+  </Step>
+  <Step title="Stereo fusion">
+    Fuse depth and normal maps from multiple views into a single, colored 3D point cloud. Run `colmap stereo_fusion`.
+  </Step>
+  <Step title="Meshing (optional)">
+    Reconstruct a surface mesh from the fused point cloud. See the [Meshing](/pipeline/meshing) page.
+  </Step>
+</Steps>
+
+## Step 1: Image undistortion
+
+Undistort images and set up the MVS workspace. The output directory will contain undistorted images and a copy of the sparse model in text format.
+
+```bash
+mkdir -p $DATASET_PATH/dense
+
+colmap image_undistorter \
+    --image_path $DATASET_PATH/images \
+    --input_path $DATASET_PATH/sparse/0 \
+    --output_path $DATASET_PATH/dense \
+    --output_type COLMAP \
+    --max_image_size 2000
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--output_type` | `COLMAP` | Output format: `COLMAP`, `PMVS`, or `CMP-MVS`. |
+| `--max_image_size` | `-1` | Limit the maximum image dimension (pixels) to reduce memory usage. |
+
+## Workspace folder structure
+
+After undistortion, the workspace has the following structure:
+
+```
+dense/
+  images/          # Undistorted input images
+  sparse/          # Sparse model in text format (cameras.txt, images.txt, points3D.txt)
+  stereo/
+    depth_maps/    # Per-image depth maps (written by patch_match_stereo)
+    normal_maps/   # Per-image normal maps (written by patch_match_stereo)
+    consistency_graphs/  # Cross-view consistency data
+    patch-match.cfg      # Stereo problem configuration
+  fused.ply        # Fused point cloud (written by stereo_fusion)
+```
+
+## Step 2: PatchMatch stereo
+
+Compute depth and normal maps for all images using CUDA-accelerated PatchMatch stereo. Each image is treated as a reference and matched against a set of source images.
+
+```bash
+colmap patch_match_stereo \
+    --workspace_path $DATASET_PATH/dense \
+    --workspace_format COLMAP \
+    --PatchMatchStereo.geom_consistency true
+```
+
+### Source image configuration
+
+The `patch-match.cfg` file (auto-generated from the sparse model) specifies which source images to use per reference image:
+
+```text
+image_name1.jpg
+__all__
+image_name2.jpg
+__auto__, 20
+image_name3.jpg
+image_name1.jpg, image_name2.jpg
+```
+
+- `__all__`: use all other images as sources.
+- `__auto__, N`: use the N most connected images as sources (recommended).
+- Explicit list: use the named images as sources.
+
+### Key options
+
+| Option | Default | Description |
+|---|---|---|
+| `--PatchMatchStereo.geom_consistency` | `false` | Enable geometric consistency across views, improving depth accuracy. |
+| `--PatchMatchStereo.max_image_size` | `-1` (auto) | Maximum image dimension for stereo. |
+| `--PatchMatchStereo.gpu_index` | `-1` (all) | GPU index or comma-separated list for multi-GPU. |
+
+<Tip>
+Enable `--PatchMatchStereo.geom_consistency true` for better depth map quality. This requires more GPU memory and time, as it performs a second pass using depth maps from the first pass.
+</Tip>
+
+### GPU memory considerations
+
+If your GPU runs out of memory:
+
+- Reduce `--max_image_size` in the `image_undistorter` step (e.g., `--max_image_size 1600` or `1000`).
+- Reduce the number of source images per reference image in `patch-match.cfg` (e.g., `__auto__, 10`).
+- Use a GPU with more VRAM or distribute across multiple GPUs with `--PatchMatchStereo.gpu_index "0,1"`.
+
+<Warning>
+If the GPU does not have sufficient memory, `patch_match_stereo` may crash ungracefully. Reduce the image size or the number of source images if this occurs.
+</Warning>
+
+### Running without a display
+
+COLMAP automatically uses CUDA mode when no display is attached (e.g., on a cluster). No additional options are needed. If CUDA is unavailable, dense reconstruction cannot run.
+
+## Step 3: Stereo fusion
+
+Fuse the per-image depth and normal maps into a single colored 3D point cloud. The output is a PLY file with per-point normal information.
+
+```bash
+colmap stereo_fusion \
+    --workspace_path $DATASET_PATH/dense \
+    --workspace_format COLMAP \
+    --input_type geometric \
+    --output_path $DATASET_PATH/dense/fused.ply
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--input_type` | `geometric` | Use `photometric` or `geometric` depth maps as fusion input. |
+| `--StereoFusion.min_num_pixels` | `5` | Minimum number of views that must agree to produce a fused point. |
+| `--StereoFusion.max_reproj_error` | `2.0` | Maximum reprojection error (pixels) for consistency checks. |
+| `--StereoFusion.max_depth_error` | `0.01` | Maximum relative depth difference for consistency checks. |
+| `--StereoFusion.max_normal_error` | `10.0` | Maximum angular difference (degrees) between normals for fusion. |
+| `--StereoFusion.max_image_size` | `-1` | Maximum image dimension during fusion. |
+| `--StereoFusion.cache_size` | `32.0` | Cache size in GB. Higher values reduce disk I/O during fusion. |
+| `--StereoFusion.num_threads` | `-1` (auto) | Number of threads for fusion. |
+
+<Note>
+The fused point cloud `fused.ply` includes per-point normal information. COLMAP's GUI can visualize the point cloud via **File > Import Model from...**, but normals are not displayed directly. Use Meshlab (**Render > Show Normal/Curvature**) to inspect normals.
+</Note>
+
+## Visualization
+
+- **Fused point cloud (`fused.ply`)**: import in COLMAP via **File > Import Model from...** or open in Meshlab.
+- **Dense mesh**: must be visualized with an external tool such as Meshlab, as COLMAP's GUI does not render mesh files.
+
+## Exporting to other MVS tools
+
+Use the `image_undistorter` with a different `--output_type` to export data for other MVS libraries:
+
+<Tabs>
+  <Tab title="PMVS/CMVS">
+    ```bash
+    colmap image_undistorter \
+        --image_path $DATASET_PATH/images \
+        --input_path $DATASET_PATH/sparse/0 \
+        --output_path $DATASET_PATH/pmvs \
+        --output_type PMVS
+
+    # Then run PMVS2
+    ./path/to/pmvs2 $DATASET_PATH/pmvs/pmvs/ option-all
+    ```
+  </Tab>
+  <Tab title="CMP-MVS">
+    ```bash
+    colmap image_undistorter \
+        --image_path $DATASET_PATH/images \
+        --input_path $DATASET_PATH/sparse/0 \
+        --output_path $DATASET_PATH/cmpmvs \
+        --output_type CMP-MVS
+    ```
+  </Tab>
+</Tabs>
+
+The undistortion output folders contain sample shell scripts for running each tool.

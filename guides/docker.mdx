@@ -1,0 +1,206 @@
+---
+title: "Docker"
+description: "Run COLMAP using the official Docker image with CPU or GPU/CUDA support, including GUI forwarding and building from source."
+---
+
+COLMAP provides an official Docker image on Docker Hub at `colmap/colmap`. The image includes CUDA support for dense reconstruction and is built on top of NVIDIA's CUDA runtime image.
+
+## Requirements
+
+- Docker 19.03 or later
+- For GPU/CUDA support: a host machine with at least one NVIDIA GPU and installed drivers, plus `nvidia-container-toolkit`
+
+## Quick start
+
+<Steps>
+  <Step title="Verify Docker version">
+    ```bash
+    docker --version
+    ```
+    Confirm the output shows version 19.03 or later.
+  </Step>
+  <Step title="Set up NVIDIA drivers and toolkit (for GPU support)">
+    From the `docker/` directory in the COLMAP source repository:
+
+    <Tabs>
+      <Tab title="Ubuntu">
+        ```bash
+        ./setup-ubuntu.sh
+        ```
+      </Tab>
+      <Tab title="CentOS">
+        ```bash
+        ./setup-centos.sh
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  <Step title="Run COLMAP">
+    Use the provided `run.sh` script with the full local path to your working directory:
+
+    ```bash
+    ./run.sh /path/to/your/working/directory
+    ```
+
+    This mounts the specified directory to `/working` inside the container and opens an interactive shell. You can then run COLMAP commands directly:
+
+    ```bash
+    colmap automatic_reconstructor \
+        --image_path ./images \
+        --workspace_path .
+    ```
+  </Step>
+</Steps>
+
+## Running COLMAP with Docker
+
+### CPU mode
+
+If no NVIDIA GPU is available, the container runs in CPU mode automatically. The `run.sh` script detects whether GPU acceleration is available and falls back gracefully:
+
+```bash
+docker run -it --rm \
+    -v /path/to/data:/working \
+    -w /working \
+    colmap/colmap:latest \
+    colmap automatic_reconstructor \
+        --image_path ./images \
+        --workspace_path .
+```
+
+<Warning>
+Dense reconstruction (PatchMatch stereo) requires CUDA. Without a GPU, only sparse reconstruction is available.
+</Warning>
+
+### GPU mode (CUDA)
+
+To enable GPU acceleration, pass `--runtime=nvidia` to Docker:
+
+```bash
+docker run -it --rm \
+    --runtime=nvidia \
+    -v /path/to/data:/working \
+    -w /working \
+    colmap/colmap:latest \
+    colmap automatic_reconstructor \
+        --image_path ./images \
+        --workspace_path .
+```
+
+<Note>
+The `run.sh` helper script automatically detects NVIDIA GPU availability and adds `--runtime=nvidia` when appropriate.
+</Note>
+
+### Volume mounting
+
+Mount your data directory into the container using `-v <host_path>:<container_path>`. COLMAP will read and write files relative to the mounted path:
+
+```bash
+docker run -it --rm \
+    --runtime=nvidia \
+    -v "$(pwd)/dataset":/working \
+    -w /working \
+    colmap/colmap:latest \
+    bash
+```
+
+Inside the container, `/working` corresponds to `$(pwd)/dataset` on the host. All output files are written there and persist after the container exits.
+
+## GUI (X11 display forwarding)
+
+To run the COLMAP graphical interface inside Docker, use the `run-gui.sh` script:
+
+```bash
+./run-gui.sh /path/to/your/working/directory
+```
+
+This script:
+1. Grants the container access to the host X server using `xhost +local:root`
+2. Passes `--net=host` and `-e DISPLAY` to forward the display
+3. Revokes X server access automatically on exit via a cleanup trap
+
+For GPU systems, it also passes `--runtime=nvidia -e NVIDIA_DRIVER_CAPABILITIES=all` and forwards `/dev/dri` render devices.
+
+You can pass extra arguments to `colmap gui` by appending them after the directory:
+
+```bash
+./run-gui.sh /path/to/data --project_path /working/project.ini
+```
+
+<Warning>
+X11 forwarding with `xhost +local:root` temporarily weakens X server security. The `run-gui.sh` script revokes this permission automatically when it exits.
+</Warning>
+
+## Building the Docker image from source
+
+To build the image locally from the COLMAP repository:
+
+<Steps>
+  <Step title="Update CUDA and Ubuntu versions">
+    Open `docker/Dockerfile` and update lines 2–3 to match your system's CUDA and Ubuntu versions:
+
+    ```dockerfile
+    ARG UBUNTU_VERSION=24.04
+    ARG NVIDIA_CUDA_VERSION=12.9.1
+    ```
+  </Step>
+  <Step title="Build the image">
+    From the `docker/` directory:
+
+    ```bash
+    ./build.sh
+    ```
+
+    This runs:
+
+    ```bash
+    docker build <repo_root> \
+        -f docker/Dockerfile \
+        -t colmap:latest
+    ```
+
+    To target a specific CUDA compute architecture:
+
+    ```bash
+    docker build . \
+        -f docker/Dockerfile \
+        -t colmap:latest \
+        --build-arg CUDA_ARCHITECTURES=75
+    ```
+  </Step>
+  <Step title="Run the locally built image">
+    ```bash
+    ./run.sh /path/to/your/working/directory
+    ```
+
+    The `run.sh` script automatically prefers a locally built `colmap:latest` image over the official `colmap/colmap:latest` image from Docker Hub.
+  </Step>
+</Steps>
+
+## Docker image structure
+
+The Dockerfile uses a multi-stage build:
+
+| Stage | Base image | Purpose |
+|---|---|---|
+| `builder` | `nvidia/cuda:<version>-devel-ubuntu<version>` | Compiles COLMAP with all build dependencies |
+| `cache-export` | `scratch` | Exports ccache and fetched dependencies for CI |
+| `runtime` | `nvidia/cuda:<version>-runtime-ubuntu<version>` | Final image with only the runtime libraries |
+
+The runtime image is significantly smaller than the builder image because it excludes compilers, headers, and build tools. COLMAP is installed to `/usr/local/` in the runtime image, which means `find_package(COLMAP REQUIRED)` works out of the box when using the image as a base for C++ projects.
+
+## Using the image as a library base
+
+Because COLMAP is installed to `/usr/local/` in the runtime image, you can use `colmap/colmap` as a base image for your own C++ projects that link against COLMAP:
+
+```dockerfile
+FROM colmap/colmap:latest
+
+# Your application build steps
+COPY . /app
+RUN cd /app && mkdir build && cd build && \
+    cmake .. -GNinja && \
+    ninja
+```
+
+CMake will find COLMAP via `find_package(colmap REQUIRED)` without any additional configuration.

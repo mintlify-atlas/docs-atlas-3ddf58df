@@ -1,0 +1,251 @@
+---
+title: "Feature Matching"
+description: "Find correspondences between images using exhaustive, sequential, vocabulary tree, spatial, or custom matching modes."
+---
+
+Feature matching finds correspondences between the keypoints detected in different images and performs geometric verification to remove outliers. The result is a scene graph stored in the database, which the reconstruction stage uses to estimate camera poses and 3D structure.
+
+<Note>
+Run `colmap feature_extractor` before any matching command. Matching is incremental: if you cancel and re-run, only previously unmatched image pairs are processed.
+</Note>
+
+## Matching modes
+
+Choose a matching mode based on your dataset size and capture scenario:
+
+<CardGroup cols={2}>
+  <Card title="Exhaustive" icon="grip">
+    Every image matched against every other image. Best quality, scales to hundreds of images.
+  </Card>
+  <Card title="Sequential" icon="list-ordered">
+    Consecutive frames matched in order. Designed for video with optional loop closure.
+  </Card>
+  <Card title="Vocabulary tree" icon="tree">
+    Nearest-neighbor matching via a vocabulary tree. Recommended for thousands of images.
+  </Card>
+  <Card title="Spatial" icon="map-pin">
+    GPS or manually-provided location–based nearest-neighbor matching.
+  </Card>
+  <Card title="Transitive" icon="arrows-left-right">
+    Extends existing matches transitively: if A↔B and B↔C, attempts A↔C.
+  </Card>
+  <Card title="Custom / Import" icon="file-import">
+    Specify exact image pairs or import pre-computed matches from text files.
+  </Card>
+</CardGroup>
+
+## Exhaustive matching
+
+Every image is matched against every other image. The `block_size` parameter controls how many images are loaded into memory at once.
+
+Recommended for datasets with up to a few hundred images.
+
+```bash
+colmap exhaustive_matcher \
+    --database_path $DATASET_PATH/database.db
+```
+
+<Warning>
+Exhaustive matching scales quadratically with the number of images. For large datasets (thousands of images), use vocabulary tree matching instead.
+</Warning>
+
+## Sequential matching
+
+Designed for images captured in sequential order (e.g., video frames). Consecutive images are matched against each other based on their sorted file names (e.g., `image0001.jpg`, `image0002.jpg`).
+
+Includes built-in **loop detection** via a vocabulary tree: every `loop_detection_period`-th image is matched against its `loop_detection_num_images` visually most similar images. A default vocabulary tree is automatically downloaded and cached.
+
+```bash
+colmap sequential_matcher \
+    --database_path $DATASET_PATH/database.db
+```
+
+<Note>
+Image file names must be ordered sequentially. The order in the database is not used — images are explicitly sorted by file name.
+</Note>
+
+## Vocabulary tree matching
+
+Each image is matched against its visual nearest neighbors using a vocabulary tree with spatial re-ranking. This is the recommended matching mode for large collections (several thousands of images).
+
+Requires a pre-trained vocabulary tree. A default tree is automatically downloaded. Additional trees with different size/accuracy trade-offs are available at `https://demuc.de/colmap/`.
+
+```bash
+colmap vocab_tree_matcher \
+    --database_path $DATASET_PATH/database.db \
+    --VocabTreeMatching.vocab_tree_path /path/to/vocab_tree.bin
+```
+
+To build a custom vocabulary tree from your own features:
+
+```bash
+colmap vocab_tree_builder \
+    --database_path $DATASET_PATH/database.db \
+    --output_path /path/to/vocab_tree.bin
+```
+
+<Tip>
+As a rule of thumb, use at least 10–100× more features than visual words when building a custom vocabulary tree.
+</Tip>
+
+## Spatial matching
+
+Matches each image against its spatial nearest neighbors. Spatial locations are extracted from EXIF GPS data by default, or can be set manually via the database management tool.
+
+Recommended when accurate prior location information (e.g., GPS) is available.
+
+```bash
+colmap spatial_matcher \
+    --database_path $DATASET_PATH/database.db
+```
+
+## Transitive matching
+
+Uses existing match transitivity to produce a more complete matching graph. If image A matches B and B matches C, this matcher attempts to match A and C directly.
+
+```bash
+colmap transitive_matcher \
+    --database_path $DATASET_PATH/database.db
+```
+
+## Custom matching / importing matches
+
+### Specifying image pairs
+
+Provide a text file with one image pair per line (relative paths in the image folder):
+
+```text
+image1.jpg image2.jpg
+image1.jpg image3.jpg
+...
+```
+
+```bash
+colmap matches_importer \
+    --database_path $DATASET_PATH/database.db \
+    --match_list_path /path/to/pairs.txt \
+    --match_type pairs
+```
+
+### Importing raw or verified matches
+
+Import pre-computed feature matches (raw or already geometrically verified). The format is:
+
+```text
+image1.jpg image2.jpg
+0 1
+1 2
+3 4
+
+image1.jpg image3.jpg
+0 1
+1 2
+3 4
+4 5
+
+...
+```
+
+Where pairs of numbers are zero-based feature indices in the respective images. An empty line separates match blocks.
+
+<Tabs>
+  <Tab title="Raw matches">
+    ```bash
+    colmap matches_importer \
+        --database_path $DATASET_PATH/database.db \
+        --match_list_path /path/to/matches.txt \
+        --match_type raw
+    ```
+  </Tab>
+  <Tab title="Inlier matches (verified)">
+    ```bash
+    colmap matches_importer \
+        --database_path $DATASET_PATH/database.db \
+        --match_list_path /path/to/matches.txt \
+        --match_type inliers
+    ```
+  </Tab>
+</Tabs>
+
+## Geometric verification
+
+After matching, geometric verification estimates two-view geometries (fundamental/essential matrices, homographies) and removes outlier matches. This step produces **inlier matches** used for reconstruction.
+
+### Standalone geometric verifier
+
+Run geometric verification independently on existing matches in the database:
+
+```bash
+colmap geometric_verifier \
+    --database_path $DATASET_PATH/database.db
+```
+
+### Guided geometric verifier
+
+Uses known relative camera poses from an existing sparse reconstruction to improve match verification results:
+
+```bash
+colmap guided_geometric_verifier \
+    --database_path $DATASET_PATH/database.db \
+    --input_path $DATASET_PATH/sparse/0
+```
+
+## GPU acceleration
+
+SIFT feature matching can be GPU-accelerated. Matching uses the GPU by default when CUDA is available.
+
+```bash
+# Use specific GPUs (comma-separated)
+colmap exhaustive_matcher \
+    --database_path $DATASET_PATH/database.db \
+    --FeatureMatching.gpu_index "0,1"
+
+# Disable GPU (CPU-only)
+colmap exhaustive_matcher \
+    --database_path $DATASET_PATH/database.db \
+    --FeatureMatching.use_gpu 0
+```
+
+<Warning>
+GPU matching can significantly degrade display performance during processing. CPU matching is slower but unobtrusive for headless servers.
+</Warning>
+
+## Key options
+
+| Option | Default | Description |
+|---|---|---|
+| `--FeatureMatching.type` | `SIFT_BRUTEFORCE` | Matcher type: `SIFT_BRUTEFORCE`, `ALIKED_BRUTEFORCE`, `SIFT_LIGHTGLUE`, `ALIKED_LIGHTGLUE` |
+| `--FeatureMatching.use_gpu` | `1` | Whether to use the GPU. |
+| `--FeatureMatching.gpu_index` | `-1` (all) | GPU index or comma-separated list. |
+| `--FeatureMatching.max_num_matches` | `32768` | Maximum number of matches per image pair. |
+| `--FeatureMatching.guided_matching` | `0` | Enable guided matching using known two-view geometry. |
+| `--FeatureMatching.skip_geometric_verification` | `0` | Skip geometric verification and forward matches unchanged. |
+| `--SiftMatching.max_ratio` | `0.8` | Lowe's ratio test threshold for SIFT matching. |
+| `--AlikedMatching.min_cossim` | `0.85` | Minimum cosine similarity for ALIKED matching. |
+
+## Matcher and extractor compatibility
+
+<AccordionGroup>
+  <Accordion title="SIFT matchers">
+    - `SIFT_BRUTEFORCE`: Brute-force matching using L2 distance with ratio test. Default for SIFT features.
+    - `SIFT_LIGHTGLUE`: Neural network–based matching using the LightGlue model. Typically produces more matches and higher inlier ratios, especially for challenging viewpoint or illumination changes. Requires ONNX support (`-DONNX_ENABLED=ON`).
+  </Accordion>
+  <Accordion title="ALIKED matchers">
+    - `ALIKED_BRUTEFORCE`: Brute-force matching using cosine similarity. Requires ONNX support.
+    - `ALIKED_LIGHTGLUE`: Neural network–based matching using LightGlue for ALIKED descriptors. Requires ONNX support.
+  </Accordion>
+</AccordionGroup>
+
+Always use extraction and matching types from the same family. Mixing types (e.g., SIFT features with an ALIKED matcher) causes a runtime error.
+
+## Combining multiple matching modes
+
+You can run multiple matching modes on the same database. COLMAP only matches image pairs that have not been matched previously, so combining modes adds coverage without redundant work.
+
+For example, run sequential matching first for video frames, then vocabulary tree matching to add long-range connections:
+
+```bash
+colmap sequential_matcher --database_path $DATASET_PATH/database.db
+colmap vocab_tree_matcher --database_path $DATASET_PATH/database.db \
+    --VocabTreeMatching.vocab_tree_path /path/to/vocab_tree.bin
+```

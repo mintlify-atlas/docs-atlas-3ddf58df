@@ -1,0 +1,309 @@
+---
+title: Contributing
+description: Guidelines for contributing bug reports, fixes, and new features to COLMAP.
+---
+
+Contributions (bug reports, bug fixes, improvements, etc.) are very welcome and should be submitted in the form of new issues and pull requests on GitHub.
+
+<CardGroup cols={2}>
+  <Card title="Report a bug" icon="bug" href="https://github.com/colmap/colmap/issues">
+    Open an issue on GitHub to report a problem or unexpected behavior.
+  </Card>
+  <Card title="Submit a pull request" icon="code-pull-request" href="https://github.com/colmap/colmap/pulls">
+    Fork the repository and open a PR with your bug fix or feature.
+  </Card>
+</CardGroup>
+
+## Pull request checklist
+
+Before submitting a pull request, make sure to:
+
+<Steps>
+  <Step title="Follow the code style">
+    Adhere to the [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.html) and the conventions described below. Run the formatting scripts before pushing.
+  </Step>
+  <Step title="Add documentation">
+    Document all new code: functions, methods, classes, and parameters. Update existing documentation where affected.
+  </Step>
+  <Step title="Write unit tests">
+    Add unit tests for all newly introduced code. Use the `COLMAP_ADD_TEST()` CMake macro to register them.
+  </Step>
+  <Step title="Verify algorithmic improvements">
+    If your change modifies an algorithm, verify that it generalizes and improves results across multiple datasets — not just a single example.
+  </Step>
+</Steps>
+
+---
+
+## Code style
+
+### Naming conventions
+
+COLMAP follows the Google C++ Style Guide with the naming rules below.
+
+| Construct | Convention | Example |
+|-----------|------------|---------|
+| Classes | `PascalCase` | `IncrementalMapper` |
+| Methods / functions | `PascalCase` | `FindNextImages()` |
+| Member variables | `snake_case_` (trailing underscore) | `num_images_` |
+| Local variables | `snake_case` | `num_inliers` |
+| Constants / enums | `kPascalCase` or `UPPER_SNAKE_CASE` | `kInvalidImageId` |
+| Files | `snake_case.h` / `snake_case.cc` / `snake_case_test.cc` | `incremental_mapper.h` |
+| Transforms | `target_from_source` | `cam_from_world` |
+| Coordinates | `x_in_y` | `point3D_in_world` |
+
+### Identifier types
+
+Specialized ID types are defined in `util/types.h`. Use them instead of raw integers for domain objects:
+
+```cpp
+// Specialized identifier types
+camera_t      // Camera ID
+image_t       // Image ID
+image_pair_t  // Image pair ID
+frame_t       // Frame ID
+rig_t         // Rig ID
+point2D_t     // 2D point index
+point3D_t     // 3D point ID
+sensor_t      // Sensor ID
+data_t        // Generic data ID
+pose_prior_t  // Pose prior ID
+```
+
+For generic indexes use `int` or `size_t`.
+
+---
+
+## Formatting
+
+### C++ formatting
+
+C++ code is formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html) using the project's `.clang-format` configuration (based on the Google style). The expected version is `22.1.1`.
+
+```yaml
+# .clang-format (abridged)
+BasedOnStyle: Google
+BinPackArguments: false
+BinPackParameters: false
+DerivePointerAlignment: false
+IncludeBlocks: Regroup
+SortIncludes: true
+```
+
+Includes are regrouped in the following priority order:
+
+1. `"colmap/..."` headers
+2. `"pycolmap/..."` headers
+3. `"thirdparty/..."` headers
+4. Standard library headers (`<algorithm>`, etc.)
+5. All other includes
+
+Run the formatting script before committing:
+
+<Tabs>
+  <Tab title="Changed files (default)">
+    ```bash
+    scripts/format/c++.sh
+    ```
+    On a non-main branch, only files changed relative to `main` are formatted.
+  </Tab>
+  <Tab title="All files">
+    ```bash
+    scripts/format/c++.sh --all
+    ```
+  </Tab>
+</Tabs>
+
+### Python formatting
+
+Python code is formatted and linted with [ruff](https://docs.astral.sh/ruff/). The expected version is `0.15.7`. Configuration lives in `ruff.toml` at the repository root:
+
+```toml
+line-length = 80
+
+[lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # Pyflakes
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "I",    # isort
+]
+ignore = ["SIM117"]
+
+[lint.per-file-ignores]
+"scripts/python/*.py" = ["E", "SIM", "UP", "B"]
+```
+
+Run the Python formatting script before committing:
+
+<Tabs>
+  <Tab title="Changed files (default)">
+    ```bash
+    scripts/format/python.sh
+    ```
+  </Tab>
+  <Tab title="All files">
+    ```bash
+    scripts/format/python.sh --all
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+Both formatting scripts default to formatting only files changed relative to `main`. Use `--all` to format the entire codebase, e.g. when onboarding a new tool version.
+</Note>
+
+---
+
+## Testing
+
+### Building with tests enabled
+
+Tests are not built by default. Enable them with `TESTS_ENABLED=ON`:
+
+```bash
+mkdir build && cd build
+cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DTESTS_ENABLED=ON
+ninja
+```
+
+### Running C++ tests
+
+Tests are registered via the `COLMAP_ADD_TEST()` CMake macro and run with [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html). CTest names follow the pattern `module/test_name` (e.g., `estimators/alignment_test`).
+
+```bash
+# Run all tests
+ctest --output-on-failure
+
+# Run a specific test
+ctest -R "util/cache_test"
+
+# Exclude GPU-dependent tests
+ctest -E "(feature/sift_test)"
+```
+
+The test framework is GTest/GMock with a custom main in `util/gtest_main.cc`. Useful testing utilities:
+
+| File | Contents |
+|------|----------|
+| `util/testing.h` | General test helpers |
+| `util/eigen_matchers.h` | Eigen matrix GMock matchers |
+| `geometry/rigid3_matchers.h` | `Rigid3d` transform matchers |
+| `geometry/sim3_matchers.h` | `Sim3d` transform matchers |
+
+### Running Python tests
+
+```bash
+pytest
+```
+
+Pytest configuration is in `pyproject.toml`. Run from the repository root.
+
+---
+
+## Module structure
+
+The primary C++ source lives under `src/colmap/`. Modules are layered bottom-to-top — lower modules must not depend on higher ones.
+
+<AccordionGroup>
+  <Accordion title="util/ — threading, logging, caching, I/O">
+    Foundational utilities: thread pool, logging via glog, LRU cache, PLY I/O, CUDA and OpenGL helpers. No domain dependencies.
+  </Accordion>
+  <Accordion title="math/ — algorithms and numerics">
+    Random number generation, polynomial solvers, graph algorithms (cuts, union-find, spanning trees).
+  </Accordion>
+  <Accordion title="geometry/ — transforms and geometry">
+    `Rigid3d` (6-DOF), `Sim3d` (7-DOF), essential and homography matrices, triangulation utilities, GPS conversion.
+  </Accordion>
+  <Accordion title="sensor/ — camera models and image I/O">
+    Camera distortion models (`SimplePinhole`, `Radial`, `OpenCV`, `Fisheye`, `Division`, etc.), `Bitmap` image I/O via OpenImageIO, `Rig` support, sensor specs database.
+  </Accordion>
+  <Accordion title="feature/ — feature extraction and matching">
+    SIFT (CPU via VLFeat, GPU via SiftGPU), ALIKED via ONNX, LightGlue matching, descriptor indexing via FAISS.
+  </Accordion>
+  <Accordion title="optim/ — robust estimation">
+    RANSAC, LO-RANSAC, SPRT, samplers, support measurers. Multi-threaded RANSAC loop.
+  </Accordion>
+  <Accordion title="scene/ — reconstruction data model">
+    `Camera`, `Image`, `Frame`, `Point2D/3D`, `Track`, `Reconstruction`, `Database` (SQLite), `CorrespondenceGraph`.
+  </Accordion>
+  <Accordion title="estimators/ — pose and geometry estimators">
+    Bundle adjustment (Ceres), absolute/relative pose, two-view geometry, triangulation, alignment. Minimal solvers in `estimators/solvers/`, Ceres cost functors in `estimators/cost_functions/`.
+  </Accordion>
+  <Accordion title="sfm/ — Structure-from-Motion pipelines">
+    `IncrementalMapper`, `GlobalMapper`, `IncrementalTriangulator`, `ObservationManager`.
+  </Accordion>
+  <Accordion title="mvs/ — Multi-View Stereo">
+    PatchMatch stereo (CUDA), depth and normal maps, stereo fusion, meshing (Poisson, Delaunay).
+  </Accordion>
+  <Accordion title="controllers/ — pipeline orchestration">
+    `AutomaticReconstructionController`, `IncrementalPipeline`, `GlobalPipeline`, `HierarchicalPipeline`, `OptionManager`.
+  </Accordion>
+  <Accordion title="exe/ and ui/ — CLI and GUI">
+    CLI subcommand implementations (`exe/colmap.cc` dispatcher). Qt GUI: `MainWindow`, `ModelViewerWidget`, OpenGL painters, configuration dialogs.
+  </Accordion>
+</AccordionGroup>
+
+### Adding a new module
+
+New modules follow the same pattern as existing ones. Use the CMake macros defined in `cmake/CMakeHelper.cmake`:
+
+```cmake
+# Register a library
+COLMAP_ADD_LIBRARY(
+    NAME colmap_my_module
+    SRCS my_module.cc my_module.h
+    PUBLIC_LINK_LIBS colmap_util colmap_geometry
+)
+
+# Register a test
+COLMAP_ADD_TEST(
+    NAME my_module_test
+    SRCS my_module_test.cc
+    LINK_LIBS colmap_my_module
+)
+```
+
+Place source files under `src/colmap/<module>/` using `snake_case` filenames.
+
+---
+
+## External dependencies
+
+<Tabs>
+  <Tab title="Core">
+    | Library | Role |
+    |---------|------|
+    | Eigen3 | Linear algebra, matrices, geometry |
+    | Ceres Solver | Nonlinear least-squares optimization |
+    | Boost | Graph algorithms, CLI option parsing |
+    | glog | Structured logging |
+    | SQLite3 | Feature and match database |
+    | OpenImageIO | Image I/O and processing |
+    | CHOLMOD | Sparse Cholesky decomposition |
+    | Metis | Graph partitioning |
+    | PoseLib | Minimal pose solvers (P3P, 5-pt, etc.) |
+    | FAISS | Fast approximate nearest-neighbor search |
+  </Tab>
+  <Tab title="Optional">
+    | Library | Role | CMake gate |
+    |---------|------|------------|
+    | CUDA | GPU PatchMatch, SiftGPU, Ceres GPU BA | `CUDA_ENABLED` |
+    | ONNX Runtime | ALIKED and LightGlue neural features | `ONNX_ENABLED` |
+    | Qt5/6 | GUI | `GUI_ENABLED` |
+    | OpenGL/GLEW | 3D visualization, SiftGPU | `OPENGL_ENABLED` |
+    | CGAL | Delaunay meshing | `CGAL_ENABLED` |
+  </Tab>
+  <Tab title="Bundled">
+    Bundled libraries live under `src/thirdparty/` and require no separate installation.
+
+    | Library | Role |
+    |---------|------|
+    | VLFeat | CPU SIFT feature extraction |
+    | SiftGPU | GPU SIFT feature extraction |
+    | PoissonRecon | Poisson surface reconstruction |
+    | LSD | Line segment detection |
+  </Tab>
+</Tabs>

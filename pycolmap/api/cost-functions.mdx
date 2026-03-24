@@ -1,0 +1,288 @@
+---
+title: Cost Functions
+description: API reference for pycolmap.cost_functions — Ceres-compatible cost functors for reprojection error, Sampson error, and pose priors.
+---
+
+`pycolmap.cost_functions` provides Ceres-compatible cost functors for use with [PyCeres](https://github.com/cvg/pyceres). These functors implement COLMAP's standard residuals, allowing you to build custom bundle adjustment problems.
+
+<Warning>
+  This module requires PyCeres to be installed: `pip install pyceres`. Without it, importing `pycolmap.cost_functions` raises a `RuntimeError`.
+</Warning>
+
+```python
+import pycolmap
+import pycolmap.cost_functions as cost_fns
+import pyceres
+```
+
+---
+
+## Reprojection error
+
+### ReprojErrorCost
+
+Standard reprojection error. Optimizes camera pose (6-DOF), 3D point (3-DOF), and camera intrinsics.
+
+```python
+cost = cost_fns.ReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.SIMPLE_RADIAL,
+    point2D=observed_xy,   # numpy (2,) — observed image point
+)
+```
+
+With 2D detection noise covariance:
+
+```python
+cost = cost_fns.ReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.SIMPLE_RADIAL,
+    point2D_cov=covariance_2x2,  # numpy (2, 2)
+    point2D=observed_xy,
+)
+```
+
+### ReprojErrorCost with constant pose
+
+Keeps the camera pose fixed; only optimizes 3D point and intrinsics.
+
+```python
+cost = cost_fns.ReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.PINHOLE,
+    point2D=observed_xy,
+    cam_from_world=pose,  # pycolmap.Rigid3d
+)
+
+# With covariance
+cost = cost_fns.ReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.PINHOLE,
+    point2D_cov=covariance_2x2,
+    point2D=observed_xy,
+    cam_from_world=pose,
+)
+```
+
+### ReprojErrorCost with constant 3D point
+
+Keeps the 3D point fixed; only optimizes pose and intrinsics.
+
+```python
+cost = cost_fns.ReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.OPENCV,
+    point2D=observed_xy,
+    point3D=xyz,  # numpy (3,)
+)
+
+# With covariance
+cost = cost_fns.ReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.OPENCV,
+    point2D_cov=covariance_2x2,
+    point2D=observed_xy,
+    point3D=xyz,
+)
+```
+
+---
+
+## Rig reprojection error
+
+For multi-camera rigs, where the frame pose and the sensor-from-rig pose are optimized separately.
+
+```python
+# Optimize frame pose, sensor-from-rig pose, 3D point, and intrinsics
+cost = cost_fns.RigReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.PINHOLE,
+    point2D=observed_xy,
+)
+
+# With covariance
+cost = cost_fns.RigReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.PINHOLE,
+    point2D_cov=covariance_2x2,
+    point2D=observed_xy,
+)
+
+# With constant cam-from-rig pose
+cost = cost_fns.RigReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.PINHOLE,
+    point2D=observed_xy,
+    cam_from_rig=cam_from_rig_pose,  # pycolmap.Rigid3d
+)
+
+# With constant cam-from-rig pose and covariance
+cost = cost_fns.RigReprojErrorCost(
+    camera_model_id=pycolmap.CameraModelId.PINHOLE,
+    point2D_cov=covariance_2x2,
+    point2D=observed_xy,
+    cam_from_rig=cam_from_rig_pose,
+)
+```
+
+---
+
+## Sampson error
+
+Two-view geometry error measured by the Sampson distance to the epipolar line. Suitable for optimizing the fundamental/essential matrix.
+
+```python
+cost = cost_fns.SampsonErrorCost(
+    cam_ray1=ray_in_cam1,  # numpy (3,) — normalized camera ray in image 1
+    cam_ray2=ray_in_cam2,  # numpy (3,) — normalized camera ray in image 2
+)
+```
+
+---
+
+## Pose prior costs
+
+### AbsolutePosePriorCost
+
+Soft prior on the absolute camera pose (6-DOF). Useful for incorporating GPS/IMU priors.
+
+```python
+cost = cost_fns.AbsolutePosePriorCost(
+    cam_from_world_prior=prior_pose,  # pycolmap.Rigid3d
+)
+
+# With prior covariance
+cost = cost_fns.AbsolutePosePriorCost(
+    cam_cov_from_world_prior=cov_6x6,  # numpy (6, 6)
+    cam_from_world_prior=prior_pose,
+)
+```
+
+### AbsolutePosePositionPriorCost
+
+Soft prior on only the camera position (3-DOF, ignores rotation).
+
+```python
+cost = cost_fns.AbsolutePosePositionPriorCost(
+    position_in_world_prior=position,  # numpy (3,)
+)
+
+# With prior covariance
+cost = cost_fns.AbsolutePosePositionPriorCost(
+    position_cov_in_world_prior=cov_3x3,  # numpy (3, 3)
+    position_in_world_prior=position,
+)
+```
+
+### RelativePosePriorCost
+
+Soft prior on the relative pose between two cameras (6-DOF).
+
+```python
+cost = cost_fns.RelativePosePriorCost(
+    i_from_j_prior=relative_pose,  # pycolmap.Rigid3d
+)
+
+# With prior covariance
+cost = cost_fns.RelativePosePriorCost(
+    i_cov_from_j_prior=cov_6x6,
+    i_from_j_prior=relative_pose,
+)
+```
+
+### Point3DAlignmentCost
+
+Error between a 3D point transformed by a similarity transform and a prior position. Used in reconstruction alignment.
+
+```python
+cost = cost_fns.Point3DAlignmentCost(
+    point_in_b_prior=target_xyz,  # numpy (3,)
+    use_log_scale=True,           # parametrize scale logarithmically
+)
+
+# With prior covariance
+cost = cost_fns.Point3DAlignmentCost(
+    point_cov_in_b_prior=cov_3x3,
+    point_in_b_prior=target_xyz,
+    use_log_scale=True,
+)
+```
+
+---
+
+## Example: custom bundle adjustment with PyCeres
+
+This example shows how to build a minimal bundle adjustment problem using PyCOLMAP cost functions with PyCeres.
+
+```python
+import pycolmap
+import pycolmap.cost_functions as cost_fns
+import pyceres
+import numpy as np
+from pathlib import Path
+
+# Load an existing reconstruction
+reconstruction = pycolmap.Reconstruction(Path("/path/to/sparse/0"))
+
+# Build a Ceres problem
+problem = pyceres.Problem()
+
+for image_id, image in reconstruction.images.items():
+    if not image.has_pose:
+        continue
+
+    camera = reconstruction.camera(image.camera_id)
+    pose = image.cam_from_world()
+
+    for point2D in image.get_observation_points2D():
+        point3D = reconstruction.point3D(point2D.point3D_id)
+
+        cost = cost_fns.ReprojErrorCost(
+            camera_model_id=camera.model,
+            point2D=point2D.xy,
+        )
+        loss = pyceres.HuberLoss(1.0)
+
+        problem.add_residual_block(
+            cost,
+            loss,
+            [pose.rotation, pose.translation, point3D.xyz, camera.params],
+        )
+
+# Configure solver
+options = pyceres.SolverOptions()
+options.linear_solver_type = pyceres.LinearSolverType.SPARSE_SCHUR
+options.max_num_iterations = 50
+options.minimizer_progress_to_stdout = True
+
+summary = pyceres.SolverSummary()
+pyceres.solve(options, problem, summary)
+print(summary.BriefReport())
+```
+
+<Tip>
+  For full bundle adjustment over an entire reconstruction, prefer the built-in `pycolmap.bundle_adjustment()` or `pycolmap.create_default_bundle_adjuster()` — they handle gauge fixing, parameter groups, and solver selection automatically.
+</Tip>
+
+---
+
+## Built-in bundle adjustment API
+
+PyCOLMAP also exposes a high-level bundle adjustment API that does not require PyCeres.
+
+```python
+# Run bundle adjustment over a full reconstruction
+pycolmap.bundle_adjustment(
+    reconstruction=reconstruction,
+    options=pycolmap.BundleAdjustmentOptions(
+        refine_focal_length=True,
+        refine_principal_point=False,
+        refine_extra_params=True,
+        refine_points3D=True,
+    ),
+)
+
+# Create a configurable Ceres bundle adjuster
+config = pycolmap.BundleAdjustmentConfig()
+for image_id in reconstruction.reg_image_ids():
+    config.add_image(image_id)
+
+ba = pycolmap.create_default_bundle_adjuster(
+    options=pycolmap.BundleAdjustmentOptions(),
+    config=config,
+    reconstruction=reconstruction,
+)
+summary = ba.solve()
+print(summary.brief_report())
+```

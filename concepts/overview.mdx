@@ -1,0 +1,87 @@
+---
+title: "Key concepts"
+description: "An introduction to the core data model in COLMAP: cameras, images, 3D points, tracks, and how SfM and MVS relate to each other."
+---
+
+COLMAP organizes a reconstruction around a small set of core concepts. Understanding how they fit together makes it easier to navigate the pipeline, interpret outputs, and extend the system for custom workflows.
+
+## The reconstruction container
+
+A `Reconstruction` is the top-level in-memory object that holds everything produced by the SfM pipeline:
+
+- **Cameras** — intrinsic parameter sets (focal length, principal point, distortion)
+- **Rigs** — multi-sensor platforms with fixed relative poses
+- **Frames** — timestamped instances of a rig with associated sensor measurements
+- **Images** — individual exposures, each linking to a camera and a frame
+- **Points3D** — triangulated world-space points
+- **Tracks** — per-point lists of contributing observations
+
+All of these objects are indexed by stable integer identifiers (`camera_t`, `image_t`, `frame_t`, `rig_t`, `point3D_t`).
+
+## Cameras vs. images
+
+The most important distinction in COLMAP's data model is between a **camera** and an **image**.
+
+| Concept | What it represents | Shared? |
+|---------|-------------------|----------|
+| **Camera** | Intrinsic parameters: model, focal length, principal point, distortion coefficients | Yes — one camera can be shared by many images |
+| **Image** | A single photograph file plus its 2D keypoint observations | No — each image is unique |
+
+A camera holds *only* intrinsics. Every image has its own extrinsic parameters (orientation and position in the world), which are stored on the `Frame` that the image belongs to.
+
+This 1-to-N relationship between cameras and images is what makes it possible to share calibration across an entire capture session. For example, a video sequence captured with one physical camera can share a single `Camera` object across thousands of frames, tying all intrinsic optimization together during bundle adjustment.
+
+<Note>
+COLMAP only uses cameras that are referenced by at least one image. Cameras present in the database but not referenced by any image are ignored during reconstruction.
+</Note>
+
+## Points3D and tracks
+
+After triangulation, every successfully reconstructed world point is a `Point3D`. Each point carries:
+
+- A 3D position (`xyz`)
+- An RGB color
+- A reprojection error (mean over all observations)
+- A **track**: an ordered list of `(image_id, point2D_idx)` pairs identifying which 2D keypoint in which image contributed to this point
+
+Tracks connect the 2D feature observations back to their 3D source. The more observations a track has, the more constraints were used to estimate that point, and typically the more reliable it is.
+
+## The database as the persistent store
+
+Before reconstruction begins, all extracted features and computed matches are persisted in a single **SQLite database** (`.db` file). The database is the handoff point between pipeline stages:
+
+- **Feature extraction** writes keypoints and descriptors.
+- **Feature matching** writes raw matches and then verified two-view geometries.
+- **Reconstruction (SfM)** reads the verified matches and writes the final model to disk as binary or text files, not back to the database.
+
+This design means the database and the sparse reconstruction model are separate artifacts. You can re-run matching or reconstruction without re-extracting features, and you can inspect the database at any stage using the GUI, Python, or any SQLite browser.
+
+## SfM and MVS
+
+COLMAP implements two complementary reconstruction pipelines:
+
+<CardGroup cols={2}>
+  <Card title="Structure-from-Motion (SfM)" icon="map">
+    Recovers camera poses and a sparse 3D point cloud from feature correspondences across images. Output: cameras, images, sparse points.
+  </Card>
+  <Card title="Multi-View Stereo (MVS)" icon="layers">
+    Takes the SfM output as input and computes dense depth maps per image using CUDA-accelerated PatchMatch stereo. Output: dense point cloud, optional mesh.
+  </Card>
+</CardGroup>
+
+SfM must run first. Its output — particularly the recovered camera poses — is required by the MVS stage. MVS operates on undistorted images and uses the sparse reconstruction only to seed and constrain dense matching.
+
+Image-based 3D reconstruction from images traditionally first recovers a sparse representation of the scene and the camera poses of the input images using Structure-from-Motion. This output then serves as the input to Multi-View Stereo to recover a dense representation of the scene.
+
+## Rigs and frames
+
+Starting from COLMAP 3.12, the concepts of **rigs** and **frames** were introduced to enable principled modeling of multi-sensor platforms and 360° panorama images.
+
+- A **rig** is a platform of sensors with fixed relative poses (e.g., a stereo camera pair, an AR/VR headset, or an autonomous driving sensor suite).
+- A **frame** is a specific timestamped instance of a rig, containing measurements from one or more of its sensors.
+
+These additions are backward-compatible. In a standard single-camera setup, each camera is automatically modeled as its own rig with a single sensor, and each image belongs to its own frame. No changes to existing workflows are required.
+
+<Tip>
+For multi-camera capture or 360° panoramas, see the [Rigs and frames](/concepts/rigs-and-frames) page for configuration details.
+</Tip>

@@ -1,0 +1,148 @@
+---
+title: "Meshing"
+description: "Reconstruct, simplify, and texture surface meshes from the fused dense point cloud."
+---
+
+After fusing depth maps into a point cloud with `stereo_fusion`, COLMAP can reconstruct a triangulated surface mesh, reduce its polygon count, and produce a texture atlas with UV coordinates for visualization.
+
+## Surface reconstruction
+
+Two meshing algorithms are available:
+
+<CardGroup cols={2}>
+  <Card title="Poisson meshing" icon="wave-square">
+    Screened Poisson surface reconstruction. Produces smooth, watertight meshes from the fused point cloud with normals.
+  </Card>
+  <Card title="Delaunay meshing" icon="triangle">
+    Graph cut on the Delaunay triangulation with visibility voting. Works on sparse or dense point clouds and produces less smooth but more faithful boundary meshes.
+  </Card>
+</CardGroup>
+
+### Poisson surface reconstruction
+
+Uses the screened Poisson algorithm to reconstruct a surface from the fused point cloud. The input PLY file must include per-point normals (as produced by `stereo_fusion`).
+
+```bash
+colmap poisson_mesher \
+    --input_path $DATASET_PATH/dense/fused.ply \
+    --output_path $DATASET_PATH/dense/meshed-poisson.ply
+```
+
+### Delaunay meshing
+
+Builds a Delaunay triangulation of the point cloud and selects the visible surface via a graph cut and visibility voting. Can also operate on the sparse reconstruction directly. Requires CGAL, enabled at build time with `-DCGAL_ENABLED=ON`.
+
+<Tabs>
+  <Tab title="Dense point cloud">
+    ```bash
+    colmap delaunay_mesher \
+        --input_path $DATASET_PATH/dense \
+        --output_path $DATASET_PATH/dense/meshed-delaunay.ply
+    ```
+  </Tab>
+  <Tab title="Sparse point cloud">
+    ```bash
+    colmap delaunay_mesher \
+        --input_path $DATASET_PATH/sparse/0 \
+        --output_path $DATASET_PATH/meshed-sparse-delaunay.ply
+    ```
+  </Tab>
+</Tabs>
+
+## Mesh simplification
+
+Poisson and Delaunay meshes can have millions of faces. Use `mesh_simplifier` to reduce complexity while preserving overall shape and appearance via Quadric Error Metric (QEM) decimation.
+
+```bash
+colmap mesh_simplifier \
+    --input_path $DATASET_PATH/dense/meshed-poisson.ply \
+    --output_path $DATASET_PATH/dense/meshed-poisson-simplified.ply \
+    --MeshSimplification.target_face_ratio 0.25
+```
+
+### Key options
+
+| Option | Default | Description |
+|---|---|---|
+| `--MeshSimplification.target_face_ratio` | `0.1` | Fraction of faces to retain after simplification. `0.1` keeps 10% of faces; `0.25` keeps 25%. |
+| `--MeshSimplification.max_error` | `0` (disabled) | Maximum quadric error threshold. Set to `0` to disable. |
+| `--MeshSimplification.boundary_weight` | `1000` | Weight for boundary edge preservation. Higher values reduce boundary distortion. |
+| `--MeshSimplification.num_threads` | `-1` (auto) | Number of threads for initialization. |
+
+<Tip>
+Start with `target_face_ratio 0.25` for a good balance between file size and visual quality. Use lower values (e.g., `0.05`) for web or real-time applications.
+</Tip>
+
+## Mesh texturing
+
+Apply calibrated images from the MVS workspace to produce a texture atlas and per-face UV coordinates. The texturing step assigns each mesh face to the best-view camera image.
+
+```bash
+colmap mesh_texturer \
+    --workspace_path $DATASET_PATH/dense \
+    --input_path $DATASET_PATH/dense/meshed-poisson.ply \
+    --output_path $DATASET_PATH/dense/textured
+```
+
+The output directory `textured/` will contain:
+
+```
+textured/
+  textured.obj     # Mesh geometry with UV coordinates
+  textured.mtl     # Material library referencing texture atlas files
+  textured_*.png   # Texture atlas image tiles
+```
+
+<Note>
+The `mesh_texturer` uses the undistorted images in the MVS workspace (`dense/images/`). Run `image_undistorter` before texturing if you have not already done so.
+</Note>
+
+## Full meshing workflow
+
+```bash
+# 1. Poisson surface reconstruction
+colmap poisson_mesher \
+    --input_path $DATASET_PATH/dense/fused.ply \
+    --output_path $DATASET_PATH/dense/meshed-poisson.ply
+
+# 2. Optionally simplify to reduce polygon count
+colmap mesh_simplifier \
+    --input_path $DATASET_PATH/dense/meshed-poisson.ply \
+    --output_path $DATASET_PATH/dense/meshed-poisson-simplified.ply \
+    --MeshSimplification.target_face_ratio 0.25
+
+# 3. Optionally texture the mesh
+colmap mesh_texturer \
+    --workspace_path $DATASET_PATH/dense \
+    --input_path $DATASET_PATH/dense/meshed-poisson-simplified.ply \
+    --output_path $DATASET_PATH/dense/textured
+```
+
+## Visualization with external tools
+
+COLMAP's GUI does not render mesh files. Use an external viewer:
+
+<AccordionGroup>
+  <Accordion title="Meshlab">
+    [Meshlab](https://www.meshlab.net/) is the recommended tool for inspecting COLMAP mesh outputs.
+
+    - Open a PLY mesh: **File > Import Mesh**, select `meshed-poisson.ply` or `meshed-delaunay.ply`.
+    - View normals: enable **Render > Show Normal/Curvature**.
+    - Open a textured mesh: **File > Import Mesh**, select `textured.obj`.
+  </Accordion>
+  <Accordion title="COLMAP GUI (point clouds only)">
+    The COLMAP GUI can visualize the fused point cloud `fused.ply` (not meshes):
+
+    **File > Import Model from...**, then select `fused.ply`.
+  </Accordion>
+</AccordionGroup>
+
+## Output files summary
+
+| File | Producer | Description |
+|---|---|---|
+| `dense/fused.ply` | `stereo_fusion` | Colored 3D point cloud with normals |
+| `dense/meshed-poisson.ply` | `poisson_mesher` | Smooth watertight surface mesh |
+| `dense/meshed-delaunay.ply` | `delaunay_mesher` | Delaunay-based surface mesh |
+| `dense/meshed-*-simplified.ply` | `mesh_simplifier` | Simplified mesh (reduced face count) |
+| `dense/textured/` | `mesh_texturer` | Textured mesh with UV atlas |

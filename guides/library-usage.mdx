@@ -1,0 +1,167 @@
+---
+title: "Library usage"
+description: "Use COLMAP as a C++ library in your own project: CMake setup, linking, a hello_world example, and static vs. shared library builds."
+---
+
+COLMAP is built not only as a standalone application but also as a reusable C++ library. After installing COLMAP, you can link against it from your own CMake project.
+
+## Installation
+
+Build and install COLMAP first. The install step copies:
+
+- Headers to `${CMAKE_INSTALL_PREFIX}/include/colmap`
+- Libraries to `${CMAKE_INSTALL_PREFIX}/lib/colmap`
+- CMake config to `${CMAKE_INSTALL_PREFIX}/share/colmap`
+
+```bash
+git clone https://github.com/colmap/colmap.git
+cd colmap
+mkdir build && cd build
+cmake .. -GNinja -DCMAKE_INSTALL_PREFIX=../install
+ninja install
+```
+
+## CMake setup
+
+Create a `CMakeLists.txt` that finds and links the installed COLMAP package:
+
+```cmake
+cmake_minimum_required(VERSION 3.10)
+
+project(SampleProject)
+
+find_package(colmap REQUIRED)
+# or to require a specific version: find_package(colmap 3.4 REQUIRED)
+
+add_executable(hello_world hello_world.cc)
+target_link_libraries(hello_world colmap::colmap)
+```
+
+The `colmap::colmap` CMake target pulls in all required include directories and transitive dependencies automatically.
+
+## Hello world example
+
+The following example is the canonical starting point for a COLMAP-based application. The full source is at `doc/sample-project/` in the COLMAP repository.
+
+<CodeGroup>
+
+```cpp hello_world.cc
+#include <cstdlib>
+#include <iostream>
+
+#include <colmap/controllers/option_manager.h>
+#include <colmap/util/string.h>
+
+int main(int argc, char** argv) {
+  colmap::InitializeGlog(argv);
+
+  std::string message;
+  colmap::OptionManager options;
+  options.AddRequiredOption("message", &message);
+  if (!options.Parse(argc, argv)) {
+    return EXIT_FAILURE;
+  }
+
+  std::cout << colmap::StringPrintf("Hello %s!\n", message.c_str());
+
+  return EXIT_SUCCESS;
+}
+```
+
+```cmake CMakeLists.txt
+cmake_minimum_required(VERSION 3.10)
+
+project(SampleProject)
+
+find_package(colmap REQUIRED)
+# or to require a specific version: find_package(colmap 3.4 REQUIRED)
+
+add_executable(hello_world hello_world.cc)
+target_link_libraries(hello_world colmap::colmap)
+```
+
+</CodeGroup>
+
+## Building and running the example
+
+<Steps>
+  <Step title="Create the build directory">
+    ```bash
+    mkdir build
+    cd build
+    ```
+  </Step>
+  <Step title="Point CMake to the COLMAP install">
+    Set `colmap_DIR` to the CMake config directory inside your install prefix:
+
+    ```bash
+    export colmap_DIR=${CMAKE_INSTALL_PREFIX}/share/colmap
+    cmake .. -GNinja
+    ```
+
+    Replace `${CMAKE_INSTALL_PREFIX}` with the actual path used when building COLMAP (e.g., `../install/share/colmap` if you used `-DCMAKE_INSTALL_PREFIX=../install`).
+  </Step>
+  <Step title="Build">
+    ```bash
+    ninja
+    ```
+  </Step>
+  <Step title="Run">
+    ```bash
+    ./hello_world --message "world"
+    ```
+
+    Expected output:
+
+    ```
+    Hello world!
+    ```
+  </Step>
+</Steps>
+
+## Static vs. shared libraries
+
+By default, COLMAP builds **static libraries**. To build shared (dynamic) libraries instead, enable `BUILD_SHARED_LIBS` at configure time:
+
+```bash
+cmake .. -GNinja -DBUILD_SHARED_LIBS=ON
+```
+
+### Trade-offs
+
+| | Static libraries | Shared libraries |
+|---|---|---|
+| **Incremental linking** | Re-links all executables on each change | Only the changed library needs re-linking |
+| **Disk/memory usage** | Larger executables, code duplicated per binary | Multiple executables share the same library file |
+| **Runtime performance** | Compiler can inline and apply LTO across boundaries | No cross-library inlining; indirect call overhead |
+| **Startup overhead** | None | Dynamic linker resolves symbols at load time |
+
+<Tip>
+Use shared libraries during development to speed up edit-compile-test cycles. Use static libraries for production builds or performance benchmarks.
+</Tip>
+
+## Include paths and library layout
+
+After installation, the layout under `${CMAKE_INSTALL_PREFIX}` is:
+
+```
+${CMAKE_INSTALL_PREFIX}/
+├── include/
+│   └── colmap/          # All COLMAP headers
+│       ├── controllers/
+│       ├── feature/
+│       ├── scene/
+│       ├── sfm/
+│       ├── mvs/
+│       └── util/
+├── lib/
+│   └── colmap/          # Static or shared library files
+└── share/
+    └── colmap/          # CMake package config files
+```
+
+When using the `colmap::colmap` CMake target, all include paths are added automatically. You do not need to set `include_directories` manually.
+
+## Extending COLMAP directly
+
+As an alternative to linking against the installed library, you can implement new functionality as a binary within the COLMAP source tree. Use `src/colmap/tools/example.cc` as a code template and add your binary using the `COLMAP_ADD_EXECUTABLE` CMake macro defined in `cmake/CMakeHelper.cmake`.

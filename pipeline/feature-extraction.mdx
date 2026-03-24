@@ -1,0 +1,173 @@
+---
+title: "Feature Extraction"
+description: "Detect and describe keypoints in your images using SIFT or ALIKED before feature matching and reconstruction."
+---
+
+Feature extraction is the first stage of the COLMAP pipeline. It detects sparse keypoints in each image and describes their local appearance with numerical descriptors. All extracted data is stored in a SQLite database file for use in subsequent stages.
+
+<Note>
+COLMAP imports images and performs feature detection in one step to avoid loading images from disk more than once.
+</Note>
+
+## Feature extractor types
+
+COLMAP supports two feature extractor types:
+
+<AccordionGroup>
+  <Accordion title="SIFT (default)">
+    Scale-Invariant Feature Transform — the classic and most widely tested feature extractor. Produces 128-dimensional `uint8` descriptors.
+
+    SIFT runs on the **GPU** (via SiftGPU) or the **CPU** (via VLFeat):
+
+    - The GPU version requires an attached display. It uses a customized detection mode that often produces higher quality features, especially in high-contrast images.
+    - The CPU version is recommended when running on a server without a display.
+
+    When running COLMAP on a headless machine, it automatically switches to CUDA if supported. If no CUDA device is available, set `--FeatureExtraction.use_gpu 0` to fall back to CPU.
+  </Accordion>
+  <Accordion title="ALIKED (neural feature extractor)">
+    A Lighter Keypoint and Descriptor Extractor — a learned feature extractor that produces floating-point descriptors. Requires ONNX Runtime support enabled at build time (`-DONNX_ENABLED=ON`).
+
+    Two model variants are available:
+
+    - **`aliked-n16rot`**: Faster, trained for some viewpoint invariance. Produces 128-dim descriptors.
+    - **`aliked-n32`**: More expensive, not explicitly trained for viewpoint invariance. Produces 128-dim descriptors.
+
+    Specify the model path via `--AlikedExtraction.*_model_path`. If the path is a URL, COLMAP will automatically download and cache the model.
+  </Accordion>
+</AccordionGroup>
+
+## CLI usage
+
+<CodeGroup>
+
+```bash SIFT extraction
+# Default: SIFT with GPU
+colmap feature_extractor \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images
+
+# Explicit options
+colmap feature_extractor \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --FeatureExtraction.type SIFT \
+    --SiftExtraction.max_num_features 8192
+```
+
+```bash ALIKED extraction
+colmap feature_extractor \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --FeatureExtraction.type ALIKED_N16ROT \
+    --AlikedExtraction.max_num_features 2048
+```
+
+```bash CPU-only (headless server)
+colmap feature_extractor \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --FeatureExtraction.use_gpu 0
+```
+
+</CodeGroup>
+
+## Key options
+
+| Option | Default | Description |
+|---|---|---|
+| `--FeatureExtraction.type` | `SIFT` | Feature extractor type: `SIFT`, `ALIKED_N16ROT`, `ALIKED_N32` |
+| `--FeatureExtraction.max_image_size` | `-1` (auto) | Maximum image size in pixels; images are down-scaled if larger. If `-1`, the appropriate size is selected automatically based on the extractor type. |
+| `--FeatureExtraction.use_gpu` | `1` | Whether to use the GPU for extraction. |
+| `--FeatureExtraction.gpu_index` | `-1` (all) | GPU index to use. Separate multiple indices with commas, e.g., `"0,1,2,3"`. |
+| `--SiftExtraction.max_num_features` | `8192` | Maximum number of SIFT features to detect per image. |
+| `--SiftExtraction.first_octave` | `-1` | First octave in the scale space pyramid. |
+| `--SiftExtraction.num_octaves` | `4` | Number of octaves in the scale space pyramid. |
+| `--SiftExtraction.peak_threshold` | `0.0067` | Peak threshold for SIFT keypoint detection. |
+| `--SiftExtraction.edge_threshold` | `10` | Edge threshold for SIFT keypoint detection. |
+| `--SiftExtraction.upright` | `0` | Fix the orientation to 0 degrees (upright SIFT). |
+| `--AlikedExtraction.max_num_features` | — | Maximum number of ALIKED features per image. |
+| `--ImageReader.camera_model` | `SIMPLE_RADIAL` | Camera distortion model to use. |
+| `--ImageReader.single_camera` | `0` | Share intrinsics across all images. |
+| `--ImageReader.single_camera_per_folder` | `0` | Share intrinsics across images in the same folder. |
+
+<Tip>
+If all images were captured with the same physical camera at the same zoom level, use `--ImageReader.single_camera 1` to share intrinsics. Do not enable this if images have different sizes or EXIF focal lengths.
+</Tip>
+
+## Camera model
+
+You must choose an intrinsic camera model before extraction. COLMAP can:
+
+- Automatically extract focal length from embedded EXIF data.
+- Look up missing specifications in a built-in database of camera models.
+- Accept manually specified intrinsic parameters.
+
+Available camera models include `SIMPLE_PINHOLE`, `PINHOLE`, `SIMPLE_RADIAL`, `RADIAL`, `OPENCV`, `FULL_OPENCV`, `SIMPLE_RADIAL_FISHEYE`, and others. The default `SIMPLE_RADIAL` is a good starting point for unknown cameras.
+
+## GUI workflow
+
+<Steps>
+  <Step title="Create a new project">
+    Start the GUI with `colmap gui`. Choose **File > New project**, select a database path, and set the image folder.
+  </Step>
+  <Step title="Open the extraction dialog">
+    Choose **Processing > Extract features**.
+  </Step>
+  <Step title="Set the camera model">
+    Select the intrinsic model in the **Camera model** section. For a single physical camera, check **Share intrinsics**.
+  </Step>
+  <Step title="Choose extractor and options">
+    Select the **SIFT** or **ALIKED** tab and configure extraction parameters.
+  </Step>
+  <Step title="Run extraction">
+    Click **Extract**. COLMAP processes all images and stores features in the database. If you cancel, re-running will continue from where it left off.
+  </Step>
+</Steps>
+
+## Importing custom features
+
+Instead of detecting features, you can import pre-computed features from text files. Place a `.txt` file alongside each image (e.g., `/path/to/image1.jpg` and `/path/to/image1.jpg.txt`) in the following format:
+
+```text
+NUM_FEATURES 128
+X Y SCALE ORIENTATION D_1 D_2 D_3 ... D_128
+...
+X Y SCALE ORIENTATION D_1 D_2 D_3 ... D_128
+```
+
+Where:
+- `X`, `Y`, `SCALE`, `ORIENTATION` are floating-point numbers.
+- `D_1...D_128` are descriptor values in the range `0...255`.
+- The file has `NUM_FEATURES` data lines, one per feature.
+- The upper-left corner of the image has coordinate `(0, 0)`. The center of the upper-left pixel has coordinate `(0.5, 0.5)`.
+
+**Example** (4 features, 128-dim descriptors):
+
+```text
+4 128
+1.2 2.3 0.1 0.3 1 2 3 4 ... 21
+2.2 3.3 1.1 0.3 3 2 3 2 ... 32
+0.2 1.3 1.1 0.3 3 2 3 2 ... 2
+1.2 2.3 1.1 0.3 3 2 3 2 ... 3
+```
+
+Use the `feature_importer` command instead of `feature_extractor` to load these files:
+
+```bash
+colmap feature_importer \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images
+```
+
+<Note>
+For large image collections, importing features via text files is slow. For better performance, write features directly to the SQLite database using a scripting language of your choice.
+</Note>
+
+## Extractor and matcher compatibility
+
+The extractor and matcher types must be compatible:
+
+- Use **SIFT** extraction with **`SIFT_BRUTEFORCE`** or **`SIFT_LIGHTGLUE`** matching.
+- Use **ALIKED** extraction with **`ALIKED_BRUTEFORCE`** or **`ALIKED_LIGHTGLUE`** matching.
+
+Do not mix different feature extractor types (e.g., SIFT and ALIKED) in the same database.

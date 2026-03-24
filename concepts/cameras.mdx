@@ -1,0 +1,104 @@
+---
+title: "Camera models"
+description: "All camera models supported by COLMAP, their parameters, distortion capabilities, and guidance on choosing the right model."
+---
+
+COLMAP implements a range of camera models of varying complexity. Each model defines how a 3D point in camera coordinates projects to a 2D pixel location. A camera stores only intrinsic parameters — focal length, principal point, and distortion coefficients — laid out as a flat `float64` array in the order specified by each model.
+
+If no intrinsic parameters are known a priori, use the simplest model that is complex enough to capture the distortion effects in your images. Using an overly complex model with unknown parameters almost always causes estimation to fail.
+
+## Model reference
+
+| Model name | Parameters | Distortion | Notes |
+|---|---|---|---|
+| `SIMPLE_PINHOLE` | `f, cx, cy` | None | Undistorted images, single focal length |
+| `PINHOLE` | `fx, fy, cx, cy` | None | Undistorted images, separate x/y focal lengths |
+| `SIMPLE_RADIAL` | `f, cx, cy, k` | Radial (1 coeff) | Good default for unknown calibration |
+| `RADIAL` | `f, cx, cy, k1, k2` | Radial (2 coeffs) | Internet photos with varying calibration |
+| `OPENCV` | `fx, fy, cx, cy, k1, k2, p1, p2` | Radial + tangential | Use when calibration is known a priori |
+| `FULL_OPENCV` | `fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, k5, k6` | Radial + tangential (full) | Use when calibration is known a priori |
+| `SIMPLE_RADIAL_FISHEYE` | `f, cx, cy, k` | Fisheye radial (1 coeff) | Fisheye lens, one distortion parameter |
+| `RADIAL_FISHEYE` | `f, cx, cy, k1, k2` | Fisheye radial (2 coeffs) | Fisheye lens, two distortion parameters |
+| `OPENCV_FISHEYE` | `fx, fy, cx, cy, k1, k2, k3, k4` | Fisheye radial (4 coeffs) | Fisheye lens, OpenCV model |
+| `FOV` | `fx, fy, cx, cy, omega` | FOV distortion | Google Project Tango equidistant calibration |
+| `THIN_PRISM_FISHEYE` | `fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, sx1, sy1` | Radial + tangential + thin-prism | Fisheye with thin-prism correction |
+| `RAD_TAN_THIN_PRISM_FISHEYE` | `fx, fy, cx, cy, k0–k5, p0, p1, s0–s3` | Radial + tangential + thin-prism (extended) | Meta Project Aria FisheyeRadTanThinPrism model |
+| `SIMPLE_DIVISION` | `f, cx, cy, k` | Division (1 coeff) | Closed-form projection and unprojection |
+| `DIVISION` | `fx, fy, cx, cy, k` | Division (1 coeff) | Separate fx/fy, closed-form |
+| `SIMPLE_FISHEYE` | `f, cx, cy` | None (equidistant) | Equidistant fisheye, no distortion params |
+| `FISHEYE` | `fx, fy, cx, cy` | None (equidistant) | Equidistant fisheye, separate fx/fy |
+
+## Choosing a model
+
+<AccordionGroup>
+  <Accordion title="Undistorted images">
+    Use `SIMPLE_PINHOLE` (single focal length) or `PINHOLE` (separate x/y focal lengths) when your images have already been undistorted. Even with pre-undistorted images, COLMAP may improve intrinsics by using a more complex model, so you can experiment.
+  </Accordion>
+  <Accordion title="Unknown calibration, varying cameras (Internet photos)">
+    Use `SIMPLE_RADIAL` or `RADIAL`. These are simplified versions of `OPENCV` that model only radial distortion with one or two parameters, respectively. They are the recommended default when every image may have come from a different camera.
+  </Accordion>
+  <Accordion title="Known calibration">
+    Use `OPENCV` or `FULL_OPENCV` when you have calibration parameters from a calibration procedure. Automatic estimation of these models is unlikely to succeed when every image has its own intrinsic parameters, so share the intrinsics across images in that case.
+  </Accordion>
+  <Accordion title="Fisheye lenses">
+    Use `SIMPLE_RADIAL_FISHEYE`, `RADIAL_FISHEYE`, `OPENCV_FISHEYE`, `FOV`, or `THIN_PRISM_FISHEYE`. All other models are not suitable for the large radial distortions produced by fisheye optics.
+
+    - `FOV` is used by Google Project Tango. Do not initialize `omega` to zero.
+    - `THIN_PRISM_FISHEYE` adds thin-prism distortion terms (`sx1, sy1`) as described in Weng et al., TPAMI 1992.
+    - `RAD_TAN_THIN_PRISM_FISHEYE` implements the Meta Project Aria FisheyeRadTanThinPrism model.
+
+    If your fisheye images have already been pre-corrected or distortion can be ignored, use `SIMPLE_FISHEYE` (single focal length) or `FISHEYE` (separate fx/fy). Both use the equidistant projection (`theta = atan(r)`) with no additional distortion parameters.
+  </Accordion>
+  <Accordion title="Division models">
+    Use `SIMPLE_DIVISION` or `DIVISION` when calibration parameters are known a priori. These implement the one-parameter division model from Fitzgibbon (2001) with closed-form projection and unprojection. They have first-order local equivalence with `SIMPLE_RADIAL` and `RADIAL` for small distortions.
+  </Accordion>
+</AccordionGroup>
+
+## Diagnosing model selection problems
+
+If a reconstruction fails or produces unreasonable results:
+
+- **Grossly wrong focal length or distortion coefficients** — the model is too complex for the available data. Switch to a simpler model.
+- **Many iterative local and global bundle adjustment rounds** — the model is too simple to capture the actual distortion. Switch to a more expressive model.
+
+You can inspect the estimated intrinsic parameters by double-clicking specific images in the model viewer, or by exporting the model and opening the `cameras.txt` file.
+
+<Tip>
+Sharing intrinsics across multiple images (one camera for many images) produces more reliable estimates than fitting separate parameters per image. This is especially important for `OPENCV` and `FULL_OPENCV`.
+</Tip>
+
+## Coordinate conventions
+
+All COLMAP camera models follow these coordinate conventions:
+
+- The upper-left image corner has coordinate `(0, 0)`.
+- The center of the upper-left pixel has coordinate `(0.5, 0.5)`.
+- The center of the lower-right pixel has coordinate `(width - 0.5, height - 0.5)`.
+
+The parameter array is ordered as: focal length parameters, then principal point parameters, then extra (distortion) parameters — exactly as listed in the table above.
+
+## Inspecting and fixing parameters
+
+You can inspect camera parameters after reconstruction via the GUI (double-click an image) or from exported model files:
+
+```bash
+# Export sparse reconstruction to text
+colmap model_converter \
+  --input_path sparse/0 \
+  --output_path sparse/0/txt \
+  --output_type TXT
+
+# cameras.txt lists model, dimensions, and parameter values
+cat sparse/0/txt/cameras.txt
+```
+
+To fix intrinsic parameters during reconstruction and prevent them from being refined:
+
+```bash
+colmap mapper \
+  --database_path database.db \
+  --image_path images/ \
+  --output_path sparse/ \
+  --Mapper.ba_refine_focal_length 0 \
+  --Mapper.ba_refine_extra_params 0
+```

@@ -1,0 +1,334 @@
+---
+title: "FAQ"
+description: "Answers to frequently asked questions about COLMAP reconstruction, camera calibration, dense reconstruction, and more."
+---
+
+<AccordionGroup>
+  <Accordion title="How do I merge disconnected models?">
+    Sometimes COLMAP produces multiple sub-models instead of a single reconstruction. If the sub-models share common registered images, you can merge them with `model_merger`:
+
+    ```bash
+    colmap model_merger \
+        --input_path1 /path/to/sub-model1 \
+        --input_path2 /path/to/sub-model2 \
+        --output_path /path/to/merged-model
+    ```
+
+    After merging, run a global bundle adjustment to improve alignment quality:
+
+    ```bash
+    colmap bundle_adjuster \
+        --input_path /path/to/merged-model \
+        --output_path /path/to/refined-merged-model
+    ```
+  </Accordion>
+
+  <Accordion title="How do I share or fix intrinsic camera parameters?">
+    **Sharing intrinsics**
+
+    COLMAP supports shared intrinsics for arbitrary groups of images. Images share the same intrinsics when they reference the same camera via `camera_id` in the database. You can configure shared cameras in the database management tool — see the Database Management documentation for details.
+
+    **Fixing intrinsics**
+
+    By default, COLMAP refines intrinsic camera parameters (except the principal point) automatically during reconstruction. If you know the calibration parameters beforehand and want to hold them constant:
+
+    1. In the GUI, go to **Reconstruction > Reconstruction options > Bundle Adj.**
+    2. Configure the `refine_*` options to keep specific parameter groups constant.
+
+    You can still refine those parameters in a final global bundle adjustment by going to **Reconstruction > Bundle adj. options > refine_*** and running **Reconstruction > Bundle adjustment**.
+
+    <Tip>
+    COLMAP's self-calibration often converges to better parameters than a calibration pattern, provided there are enough images sharing the same intrinsics. Fix intrinsics only if you are confident in your prior calibration.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Dense reconstruction freezes or runs out of GPU memory">
+    PatchMatch stereo runs entirely on the GPU and can exhaust VRAM for large images or many source images.
+
+    **Reduce GPU memory usage:**
+
+    ```bash
+    # Reduce maximum image size
+    colmap patch_match_stereo \
+        --workspace_path /path/to/workspace \
+        --PatchMatchStereo.max_image_size 1000
+    ```
+
+    You can also reduce the number of source images per reference image by editing `stereo/patch-match.cfg` and changing the source image count, for example from `__auto__, 30` to `__auto__, 10`.
+
+    **Reduce CPU memory usage during fusion:**
+
+    ```bash
+    colmap stereo_fusion \
+        --workspace_path /path/to/workspace \
+        --StereoFusion.cache_size 8 \
+        --output_path /path/to/fused.ply
+    ```
+
+    **Fix GPU freezes on Windows (TDR timeout):**
+
+    The Windows OS may reset the GPU if it stops responding. Increase the Timeout Detection & Recovery delay by setting these registry entries (run as administrator):
+
+    ```bat
+    reg add HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\GraphicsDrivers /v TdrLevel /t REG_DWORD /d 00000001
+    reg add HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\GraphicsDrivers /v TdrDelay /t REG_DWORD /d 00000120
+    ```
+
+    Restart the machine afterwards.
+
+    **Fix GPU freezes on Linux (X server timeout):**
+
+    Stop the X server before running dense reconstruction:
+
+    ```bash
+    sudo service lightdm stop
+    colmap patch_match_stereo ...
+    sudo service lightdm start
+    ```
+  </Accordion>
+
+  <Accordion title="How do I register new images into an existing reconstruction?">
+    To localize new images against an existing model without re-running the full pipeline:
+
+    ```bash
+    # 1. Extract features for the new images
+    colmap feature_extractor \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images \
+        --image_list_path /path/to/image-list.txt
+
+    # 2. Match the new images against existing images
+    colmap vocab_tree_matcher \
+        --database_path $PROJECT_PATH/database.db \
+        --VocabTreeMatching.match_list_path /path/to/image-list.txt
+
+    # 3. Register the new images into the model
+    colmap image_registrator \
+        --database_path $PROJECT_PATH/database.db \
+        --input_path /path/to/existing-model \
+        --output_path /path/to/model-with-new-images
+
+    # 4. Optional: run bundle adjustment to refine the result
+    colmap bundle_adjuster \
+        --input_path /path/to/model-with-new-images \
+        --output_path /path/to/model-with-new-images
+    ```
+
+    The image list text file contains one image filename per line.
+
+    <Note>
+    For more accurate registration with triangulation, run the `mapper` instead of `image_registrator`. This continues the full reconstruction process from the existing model:
+
+    ```bash
+    colmap mapper \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images \
+        --input_path /path/to/existing-model \
+        --output_path /path/to/model-with-new-images
+    ```
+
+    Note that dense reconstruction must be re-run from scratch after running `mapper` or `bundle_adjuster`, because the model coordinate frame can change.
+    </Note>
+  </Accordion>
+
+  <Accordion title="How do I use existing camera calibration?">
+    If you know the camera calibration parameters beforehand, you can provide them and prevent COLMAP from estimating them from scratch.
+
+    First, manually construct a sparse model by creating `cameras.txt`, `images.txt`, and `points3D.txt` in a new directory:
+
+    ```
+    path/to/manually/created/sparse/model/
+    ├── cameras.txt   # your known intrinsics
+    ├── images.txt    # known poses if available
+    └── points3D.txt  # leave empty
+    ```
+
+    In `images.txt`, every other line (the keypoints line) must be empty. Example:
+
+    ```
+    1 0.695104 0.718385 -0.024566 0.012285 -0.046895 0.005253 -0.199664 1 image0001.png
+
+    2 0.696445 0.717090 -0.023185 0.014441 -0.041213 0.001928 -0.134851 2 image0002.png
+    ```
+
+    Then extract features, match, and triangulate:
+
+    ```bash
+    colmap feature_extractor \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images
+
+    colmap exhaustive_matcher \
+        --database_path $PROJECT_PATH/database.db
+
+    colmap point_triangulator \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images \
+        --input_path path/to/manually/created/sparse/model \
+        --output_path path/to/triangulated/sparse/model
+    ```
+
+    <Tip>
+    If your known intrinsics have large distortion coefficients, copy the parameters from `cameras.txt` into the database before matching, so the matcher can leverage the distortion model. You can do this via pycolmap's database API.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="How do I run COLMAP on a server without a display?">
+    If you are running COLMAP on a headless server (no attached display), you can run all steps from the command line without a display. GPU feature extraction and matching can be disabled if no GPU is available:
+
+    ```bash
+    # Feature extraction without GPU
+    colmap feature_extractor \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images \
+        --FeatureExtraction.use_gpu false
+
+    # Matching without GPU
+    colmap exhaustive_matcher \
+        --database_path $PROJECT_PATH/database.db \
+        --FeatureMatching.use_gpu false
+
+    # Sparse reconstruction (CPU only)
+    colmap mapper \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images \
+        --output_path $PROJECT_PATH/sparse
+    ```
+
+    <Warning>
+    Dense reconstruction (PatchMatch stereo) requires CUDA and cannot run on CPU. If you need dense reconstruction on a headless server, a CUDA-capable GPU is required.
+    </Warning>
+
+    <Note>
+    CPU feature extraction can consume excessive RAM for large images. Consider reducing the maximum image size with `--FeatureExtraction.max_image_size` and limiting threads with `--FeatureExtraction.num_threads`.
+    </Note>
+  </Accordion>
+
+  <Accordion title="How do I adjust options for different reconstruction scenarios?">
+    COLMAP provides several presets for different scenarios and quality levels. In the GUI, go to **Extras > Set options for ...** to select a preset.
+
+    To use presets from the command line:
+
+    1. In the GUI, choose a preset under **Extras > Set options for ...**
+    2. Save the options to a project file via **File > Save project**
+    3. Open the project file in a text editor to inspect or modify the options
+
+    Alternatively, generate a project file entirely from the command line:
+
+    ```bash
+    colmap project_generator
+    ```
+  </Accordion>
+
+  <Accordion title="How do I choose between SIFT and ALIKED features?">
+    COLMAP supports two feature extraction algorithms:
+
+    - **SIFT** (default): widely tested and robust. Works well for moderate to high view overlap, sufficient scene texture, and similar illumination. Supports both GPU and CPU extraction.
+
+    - **ALIKED**: a learned feature extractor that can produce more repeatable features for scenes with limited view overlap, little texture, or drastic illumination changes. Requires ONNX Runtime at build time (`-DONNX_ENABLED=ON`).
+
+    Both support brute-force matching and LightGlue neural network-based matching. LightGlue typically achieves higher inlier ratios for image pairs with large viewpoint or illumination differences, but also requires ONNX support.
+
+    <Warning>
+    Do not mix different feature types (e.g., SIFT and ALIKED) in the same database. The descriptors are incompatible and matching will fail.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="How do I choose the right camera model?">
+    COLMAP supports many camera models. As a rule of thumb, use the simplest model that adequately describes your lens:
+
+    | Model | Use case |
+    |---|---|
+    | `SIMPLE_RADIAL` (default) | Good starting point for most standard cameras |
+    | `PINHOLE` | Images with negligible distortion (already undistorted, or high-quality industrial lenses) |
+    | `OPENCV` | Wider-angle lenses with moderate distortion |
+    | `SIMPLE_RADIAL_FISHEYE` / `OPENCV_FISHEYE` | Fisheye lenses with field of view significantly larger than 120° |
+    | `FULL_OPENCV` | Complex distortion patterns; requires many images sharing intrinsics |
+
+    Overly complex models with many parameters can produce degenerate or overfitted calibration, especially when few images share intrinsics. If in doubt, start with `SIMPLE_RADIAL` and inspect reprojection errors in the model statistics.
+  </Accordion>
+
+  <Accordion title="How do I choose between incremental, global, and hierarchical SfM?">
+    COLMAP offers three reconstruction pipelines:
+
+    | Pipeline | Command | Characteristics |
+    |---|---|---|
+    | Incremental (default) | `mapper` | Most robust and well-tested. Adds one image at a time. Can be slow for very large datasets. |
+    | Global | `global_mapper` | Solves all poses simultaneously. Faster for large datasets with good matching graphs, but less robust to outliers. Requires good focal length priors. |
+    | Hierarchical | `hierarchical_mapper` | Partitions the scene into overlapping sub-models and merges them. Useful for very large datasets where incremental SfM is too slow. |
+
+    All three can be selected via `automatic_reconstructor` using `--mapper INCREMENTAL`, `--mapper GLOBAL`, or `--mapper HIERARCHICAL`.
+
+    <Tip>
+    For the global mapper, if reliable intrinsics are not available, run `view_graph_calibrator` before `global_mapper` to estimate focal lengths from the view graph. Note that `view_graph_calibrator` modifies the database in-place — work on a copy.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="How do I use GPS / pose priors during reconstruction?">
+    If your images have GPS information in their EXIF metadata, COLMAP automatically extracts and stores it as pose priors during feature extraction. Use `pose_prior_mapper` to incorporate these priors:
+
+    ```bash
+    colmap feature_extractor \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images
+
+    colmap exhaustive_matcher \
+        --database_path $PROJECT_PATH/database.db
+
+    colmap pose_prior_mapper \
+        --database_path $PROJECT_PATH/database.db \
+        --image_path $PROJECT_PATH/images \
+        --output_path $PROJECT_PATH/sparse
+    ```
+
+    Control prior uncertainty using `--prior_position_std_x`, `--prior_position_std_y`, and `--prior_position_std_z` (default: 1.0 meter each).
+  </Accordion>
+
+  <Accordion title="How do I increase the number of matches and sparse 3D points?">
+    To increase feature matches and 3D point density:
+
+    ```bash
+    # Use DSP-SIFT with affine shape estimation
+    colmap feature_extractor \
+        --SiftExtraction.estimate_affine_shape true \
+        --SiftExtraction.domain_size_pooling true
+
+    # Enable guided matching
+    colmap exhaustive_matcher \
+        --FeatureMatching.guided_matching true
+    ```
+
+    By default, COLMAP ignores two-view feature tracks in triangulation. To also triangulate two-view tracks (can improve stability for sparse image collections), uncheck **Reconstruction > Reconstruction options > Triangulation > ignore_two_view_tracks** in the GUI.
+  </Accordion>
+
+  <Accordion title="Feature matching fails with an illegal memory access error">
+    This error indicates the GPU ran out of memory during feature matching:
+
+    ```
+    MultiplyDescriptor: an illegal memory access was encountered
+    ```
+
+    or:
+
+    ```
+    ERROR: Feature matching failed. This probably caused by insufficient GPU memory.
+    Consider reducing the maximum number of features.
+    ```
+
+    Reduce the maximum number of matches until the error disappears:
+
+    ```bash
+    colmap exhaustive_matcher \
+        --database_path $PROJECT_PATH/database.db \
+        --FeatureMatching.max_num_matches 8192
+    ```
+
+    The approximate maximum GPU memory required for SIFT matching is:
+
+    ```
+    4 * num_matches * num_matches + 4 * num_matches * 256  (bytes)
+    ```
+
+    For example, `max_num_matches=10000` requires approximately 400 MB.
+  </Accordion>
+</AccordionGroup>

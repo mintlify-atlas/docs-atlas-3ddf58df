@@ -1,0 +1,56 @@
+---
+title: Introduction
+description: PyCOLMAP exposes COLMAP's Structure-from-Motion and Multi-View Stereo capabilities to Python via pybind11 bindings.
+---
+
+PyCOLMAP provides Python bindings to COLMAP's C++ library using [pybind11](https://github.com/pybind/pybind11). It gives you direct access to the same algorithms and data structures used by the COLMAP command-line tool, from Python code.
+
+## What PyCOLMAP exposes
+
+PyCOLMAP covers the full COLMAP pipeline:
+
+- **Feature extraction** — SIFT (CPU and GPU), ALIKED (via ONNX Runtime), and custom extractors
+- **Feature matching** — exhaustive, sequential, vocabulary-tree, spatial, and image-pair matching
+- **Structure-from-Motion** — incremental and global mapping pipelines, bundle adjustment, triangulation
+- **Scene manipulation** — reading, writing, and editing `Reconstruction` objects (cameras, images, 3D points)
+- **Geometry** — `Rigid3d` and `Sim3d` transforms, pose estimation, two-view geometry
+- **Cost functions** — Ceres-compatible reprojection error, Sampson error, and pose prior cost functors (requires [PyCeres](https://github.com/cvg/pyceres))
+- **Multi-View Stereo** — PatchMatch depth estimation and fusion (when built with CUDA)
+
+## Use cases
+
+- Scripting end-to-end 3D reconstructions from Python
+- Integrating COLMAP into research pipelines alongside PyTorch, NumPy, or Open3D
+- Loading and inspecting existing COLMAP reconstructions programmatically
+- Building custom bundle adjustment problems with PyCeres cost functions
+- Prototyping new feature extractors or matchers against the COLMAP database
+
+## Version information
+
+You can inspect the library version at runtime:
+
+```python
+import pycolmap
+
+print(pycolmap.__version__)        # PyCOLMAP version
+print(pycolmap.__ceres_version__)  # Linked Ceres Solver version
+print(pycolmap.COLMAP_version)     # COLMAP C++ version string
+print(pycolmap.has_cuda)           # True if GPU support is available
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/pycolmap/installation">
+    Install PyCOLMAP from PyPI or build from source.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/pycolmap/quickstart">
+    Run a complete reconstruction end-to-end in Python.
+  </Card>
+  <Card title="Reconstruction API" icon="cube" href="/pycolmap/api/reconstruction">
+    Work with cameras, images, and 3D points.
+  </Card>
+  <Card title="Cost Functions" icon="function" href="/pycolmap/api/cost-functions">
+    Use COLMAP's Ceres cost functors in custom optimizations.
+  </Card>
+</CardGroup>

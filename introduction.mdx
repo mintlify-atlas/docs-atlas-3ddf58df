@@ -1,0 +1,121 @@
+---
+title: "COLMAP"
+description: "A general-purpose Structure-from-Motion and Multi-View Stereo pipeline for 3D reconstruction from image collections."
+---
+
+COLMAP is a general-purpose **Structure-from-Motion (SfM)** and **Multi-View Stereo (MVS)** pipeline with a graphical and command-line interface. It offers a wide range of features for reconstruction of ordered and unordered image collections, producing sparse and dense 3D models from photographs.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get a 3D reconstruction running in minutes with automatic reconstruction.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install COLMAP on Linux, macOS, Windows, or via Docker.
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/interfaces/cli">
+    Explore all available commands for scripting and automation.
+  </Card>
+  <Card title="PyCOLMAP" icon="python" href="/pycolmap/introduction">
+    Use COLMAP's full capabilities from Python.
+  </Card>
+</CardGroup>
+
+## What COLMAP does
+
+COLMAP reconstructs 3D models from 2D image collections through two main stages:
+
+**Structure-from-Motion (SfM)** recovers camera poses and a sparse 3D point cloud from feature correspondences across images. COLMAP supports incremental, global, and hierarchical SfM pipelines.
+
+**Multi-View Stereo (MVS)** takes the SfM output and computes dense depth maps for every image using CUDA-accelerated PatchMatch stereo. These depth maps are fused into a dense colored point cloud, which can then be meshed using Poisson or Delaunay reconstruction.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Multiple SfM pipelines" icon="map">
+    Incremental, global (rotation averaging), and hierarchical SfM for different scale and accuracy requirements.
+  </Card>
+  <Card title="CUDA-accelerated MVS" icon="microchip">
+    PatchMatch stereo runs on GPU for fast dense depth estimation and fusion.
+  </Card>
+  <Card title="Flexible feature extraction" icon="eye">
+    SIFT (CPU/GPU) and ALIKED neural features. Multiple matching strategies: exhaustive, sequential, vocabulary tree, spatial.
+  </Card>
+  <Card title="Rich camera models" icon="camera">
+    Pinhole, radial, OpenCV, and fisheye distortion models. Rig support for multi-sensor platforms.
+  </Card>
+  <Card title="GUI and CLI" icon="window">
+    A Qt-based graphical interface for interactive reconstruction and a full command-line interface for scripting.
+  </Card>
+  <Card title="Python bindings" icon="python">
+    PyCOLMAP exposes the full reconstruction pipeline to Python for integration into research workflows.
+  </Card>
+</CardGroup>
+
+## Typical workflow
+
+<Steps>
+  <Step title="Extract features">
+    Detect and describe keypoints in each image using SIFT or ALIKED.
+    ```bash
+    colmap feature_extractor \
+      --database_path database.db \
+      --image_path images/
+    ```
+  </Step>
+  <Step title="Match features">
+    Find correspondences between image pairs using exhaustive or vocabulary tree matching.
+    ```bash
+    colmap exhaustive_matcher \
+      --database_path database.db
+    ```
+  </Step>
+  <Step title="Sparse reconstruction (SfM)">
+    Recover camera poses and a sparse 3D point cloud.
+    ```bash
+    colmap mapper \
+      --database_path database.db \
+      --image_path images/ \
+      --output_path sparse/
+    ```
+  </Step>
+  <Step title="Dense reconstruction (MVS)">
+    Compute dense depth maps and fuse them into a point cloud.
+    ```bash
+    colmap image_undistorter --image_path images/ --input_path sparse/0 --output_path dense/
+    colmap patch_match_stereo --workspace_path dense/
+    colmap stereo_fusion --workspace_path dense/ --output_path dense/fused.ply
+    ```
+  </Step>
+</Steps>
+
+Or use the **automatic reconstructor** to run the full pipeline with a single command:
+
+```bash
+colmap automatic_reconstructor \
+  --workspace_path /path/to/project \
+  --image_path /path/to/project/images
+```
+
+## Citation
+
+If you use COLMAP in your research, please cite:
+
+```bibtex
+@inproceedings{schoenberger2016sfm,
+  author={Sch\"{o}nberger, Johannes Lutz and Frahm, Jan-Michael},
+  title={Structure-from-Motion Revisited},
+  booktitle={Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year={2016},
+}
+
+@inproceedings{schoenberger2016mvs,
+  author={Sch\"{o}nberger, Johannes Lutz and Zheng, Enliang and Pollefeys, Marc and Frahm, Jan-Michael},
+  title={Pixelwise View Selection for Unstructured Multi-View Stereo},
+  booktitle={European Conference on Computer Vision (ECCV)},
+  year={2016},
+}
+```
+
+## License
+
+COLMAP is licensed under the **new BSD license**. See the [license page](/contributing/changelog) for full terms. Note that COLMAP's optional dependencies have their own licenses that may affect distribution.

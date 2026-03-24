@@ -1,0 +1,324 @@
+---
+title: "Graphical User Interface"
+description: "Use COLMAP's Qt-based GUI to run the full reconstruction pipeline interactively, with real-time 3D visualization."
+---
+
+The COLMAP GUI provides access to most of the available functionality and visualizes the reconstruction process in real-time. Registered images are displayed in red and reconstructed points in their average color extracted from the images. The viewer can also display dense point clouds produced from Multi-View Stereo.
+
+<Note>
+  The GUI requires an attached display with at least OpenGL 3.2 support. On headless servers, use the [CLI](/interfaces/cli) instead.
+</Note>
+
+## Starting the GUI
+
+<Tabs>
+  <Tab title="Linux">
+    ```bash
+    colmap gui
+    ```
+
+    Or from the CMake build folder:
+
+    ```bash
+    ./src/colmap/exe/colmap gui
+    ```
+  </Tab>
+  <Tab title="macOS">
+    Launch **COLMAP.app** from your Applications folder, or run:
+
+    ```bash
+    colmap gui
+    ```
+  </Tab>
+  <Tab title="Windows">
+    Run **COLMAP.bat** from the installation folder, or from the command prompt:
+
+    ```bat
+    colmap gui
+    ```
+  </Tab>
+</Tabs>
+
+You can also open a project directly at launch to skip manual file selection:
+
+```bash
+colmap gui --project_path /path/to/project.ini
+```
+
+## Creating a new project
+
+Every reconstruction is associated with a project that links a database file to an image folder.
+
+<Steps>
+  <Step title="Create a new project">
+    Choose **File > New project**. In the dialog, set:
+
+    - **Database**: path to the SQLite database file (e.g., `/path/to/project/database.db`). The file will be created if it does not exist.
+    - **Images**: path to the folder containing your input images (e.g., `/path/to/project/images`).
+  </Step>
+  <Step title="Save the project">
+    Choose **File > Save project** to write a `.ini` configuration file. This stores the database and image folder paths along with all parameter settings so you can reopen the project later.
+
+    A typical project folder looks like this:
+
+    ```
+    /path/to/project/
+    ├── images/
+    │   ├── image1.jpg
+    │   ├── image2.jpg
+    │   └── ...
+    ├── database.db
+    └── project.ini
+    ```
+  </Step>
+  <Step title="Reopen an existing project">
+    Choose **File > Open project** and select the `.ini` file. All parameter settings are restored automatically.
+  </Step>
+</Steps>
+
+<Tip>
+  If you move the database or image folder, update the paths in the `.ini` file or create a new project — the configuration stores absolute paths.
+</Tip>
+
+## Menu reference
+
+### File menu
+
+| Action | Description |
+|--------|-------------|
+| **New project** | Create a new project by linking a database and image folder. |
+| **Open project** | Open an existing `.ini` project configuration file. |
+| **Save project** | Save current settings to the `.ini` file. |
+| **Export** | Export the currently viewed model to a folder in COLMAP's text format. |
+| **Export all** | Export all reconstructed models to a folder. |
+| **Export as...** | Export the model in an alternative format (Bundler, VisualSfM NVM, PLY, VRML). |
+| **Import** | Import a model from a folder containing COLMAP's export files. |
+| **Import from...** | Import a PLY point cloud file with RGB color information for visualization. |
+
+### Processing menu
+
+| Action | Description |
+|--------|-------------|
+| **Extract features** | Detect and describe keypoints in each image. Configure the camera model and choose between SIFT, GPU-accelerated SIFT, or ALIKED feature extraction. |
+| **Feature matching** | Match features across image pairs. Choose the matching mode appropriate for your dataset (exhaustive, sequential, vocabulary tree, spatial, transitive, or custom). |
+| **Manage database** | Review and edit imported cameras, images, and feature matches. |
+
+### Reconstruction menu
+
+| Action | Description |
+|--------|-------------|
+| **Start** | Begin incremental sparse reconstruction. |
+| **Pause** | Pause an in-progress reconstruction. |
+| **Resume** | Resume a paused reconstruction. |
+| **Reset** | Clear the current reconstruction from the viewer. |
+| **Automatic reconstruction** | Run the full pipeline (feature extraction, matching, SfM, and optionally MVS) in one step. |
+| **Reconstruction options** | Configure mapper parameters, initialization strategy, and other settings. |
+| **Multi-view stereo** | Launch the dense reconstruction workflow in a workspace folder. |
+
+### Render menu
+
+| Action | Description |
+|--------|-------------|
+| **Render options** | Set projection model, colormap, point and camera rendering settings. |
+| **Reset view** | Reset all viewer settings to defaults. |
+
+### Extras menu
+
+| Action | Description |
+|--------|-------------|
+| **Set options for ... data** | Apply preset parameter profiles optimized for individual, video, or internet photo collections. |
+| **Undistort images** | Undistort and export images for use with external dense reconstruction tools (CMVS/PMVS, CMP-MVS). |
+| **Grab image** | Save a screenshot of the current viewpoint (without axes) to an image file. |
+| **Grab movie** | Create a video screen capture by defining a camera trajectory through control viewpoints. |
+
+## Feature extraction
+
+Choose **Processing > Extract features** to open the feature extraction dialog.
+
+- Select the **camera model** (SIMPLE_RADIAL by default). You can read focal length from EXIF data or enter intrinsics manually.
+- If all images were captured by the same physical camera at the same zoom, enable **Share intrinsics** to use a single camera model for all images.
+- Choose **SIFT** (default) or **ALIKED** as the feature type.
+- GPU extraction is enabled by default and produces higher-quality features. Set `--FeatureExtraction.use_gpu 0` to use the CPU on headless servers.
+
+Click **Extract**. If you cancel and re-run, COLMAP continues from where it left off. You can add new images to an existing project and re-run extraction — only new images are processed.
+
+<Note>
+  You can also import pre-computed features. Place a `.txt` file next to each image with the same base name (e.g., `image1.jpg.txt`). The format is:
+
+  ```
+  NUM_FEATURES 128
+  X Y SCALE ORIENTATION D_1 D_2 ... D_128
+  ```
+
+  The upper-left corner of the image is `(0, 0)` and the center of the upper-left pixel is `(0.5, 0.5)`.
+</Note>
+
+## Feature matching
+
+Choose **Processing > Feature matching** and select a matching mode:
+
+<AccordionGroup>
+  <Accordion title="Exhaustive matching">
+    Every image is matched against every other image. Best for datasets with up to a few hundred images. The block size controls how many images are held in memory at once.
+  </Accordion>
+  <Accordion title="Sequential matching">
+    Consecutive images are matched against each other — ideal for video sequences where frames have ordered temporal overlap. Built-in loop detection using a vocabulary tree matches every N-th image (`loop_detection_period`) against its visually similar images (`loop_detection_num_images`). Image file names must be ordered sequentially (e.g., `image0001.jpg`, `image0002.jpg`).
+  </Accordion>
+  <Accordion title="Vocabulary tree matching">
+    Every image is matched against its visual nearest neighbors using a vocabulary tree with spatial re-ranking. Recommended for large collections of several thousand images. Requires a pre-trained vocabulary tree.
+  </Accordion>
+  <Accordion title="Spatial matching">
+    Images are matched against their spatial nearest neighbors. COLMAP can read GPS coordinates from EXIF automatically. Use this mode when accurate prior location information is available.
+  </Accordion>
+  <Accordion title="Transitive matching">
+    Uses existing match transitivity to produce a more complete graph: if A matches B and B matches C, this matcher attempts to directly match A to C.
+  </Accordion>
+  <Accordion title="Custom matching">
+    Specify individual image pairs for matching or import pre-computed feature matches (raw or geometrically verified). Provide a text file with one image pair per line:
+
+    ```
+    image1.jpg image2.jpg
+    image1.jpg image3.jpg
+    ```
+
+    To import matches directly, use the format:
+
+    ```
+    image1.jpg image2.jpg
+    0 1
+    1 2
+    3 4
+
+    image1.jpg image3.jpg
+    0 1
+    1 2
+    ```
+
+    where pairs of numbers are zero-based feature indices.
+  </Accordion>
+</AccordionGroup>
+
+Click **Match**. Already matched pairs are skipped, so you can safely re-run matching after adding new images.
+
+## Sparse reconstruction
+
+Choose **Reconstruction > Start** to begin incremental reconstruction. COLMAP:
+
+1. Loads all extracted data from the database into memory.
+2. Seeds the reconstruction from an initial image pair.
+3. Incrementally registers new images and triangulates new points.
+4. Attempts to reconstruct multiple disconnected models if not all images register into one.
+
+The different models can be selected from the drop-down menu in the toolbar. If models share common registered images, use the `model_merger` command to merge them.
+
+<Tip>
+  If reconstruction fails to initialize, open **Reconstruction > Reconstruction options > Init** and manually specify an initial image pair from the database management tool. Choose images with sufficient matches and clearly different viewpoints.
+</Tip>
+
+## Dense reconstruction (Multi-View Stereo)
+
+Choose **Reconstruction > Multi-view stereo** after completing sparse reconstruction or importing a sparse model. Select a workspace folder for all dense output.
+
+<Steps>
+  <Step title="Undistort">
+    Undistort images and prepare the workspace for PatchMatch stereo.
+  </Step>
+  <Step title="Stereo">
+    Compute depth and normal maps for all registered images using CUDA-accelerated PatchMatch.
+  </Step>
+  <Step title="Fuse">
+    Fuse depth and normal maps into a dense colored point cloud (`fused.ply`).
+  </Step>
+  <Step title="Mesh (optional)">
+    Reconstruct a surface mesh using Poisson or Delaunay reconstruction.
+  </Step>
+</Steps>
+
+The resulting folder structure:
+
+```
+workspace/
+├── images/
+├── sparse/
+├── stereo/
+├── fused.ply
+├── meshed-poisson.ply
+└── meshed-delaunay.ply
+```
+
+<Warning>
+  During stereo reconstruction, your display may freeze due to heavy GPU load. If the GPU runs out of memory, the process may crash. See the [FAQ](/guides/faq) for workarounds.
+</Warning>
+
+Import `fused.ply` into the COLMAP viewer via **File > Import from...**. Dense mesh files must be visualized with an external tool such as Meshlab.
+
+## Database management
+
+Choose **Processing > Manage database** to review and edit cameras, images, and matches.
+
+- Click **Show image** to view keypoints for a specific image.
+- Click **Overlapping images** to view matches.
+- To share intrinsics between images, select them, click **Set camera**, and assign the same `camera_id`.
+- Set `prior_focal_length` to `1` if you have a calibrated focal length, or leave it at the default for EXIF/estimated values.
+- Double-click a cell to edit it. Changes take effect only after clicking **Save**.
+
+## Model viewer controls
+
+| Action | Control |
+|--------|--------|
+| Rotate model | Left-click and drag |
+| Shift model | Right-click and drag, or Ctrl+drag (Cmd+drag on Mac) |
+| Zoom | Scroll |
+| Change point size | Ctrl+scroll (Cmd+scroll on Mac) |
+| Change camera size | Alt+scroll |
+| Adjust clipping plane | Shift+scroll |
+| Select point | Double-left-click a point (increase point size if too small). Green lines show projections into all images that observe the point. |
+| Select camera | Double-left-click a camera (increase camera size if too small). Purple lines show images sharing at least one common point with the selected image. |
+| Reset view | **Render > Reset view** |
+
+## Importing and exporting models
+
+<AccordionGroup>
+  <Accordion title="COLMAP format (recommended)">
+    Choose **File > Export** (current model) or **File > Export all** (all models). The folder contains separate text files: `cameras.txt`, `images.txt`, `points3D.txt`, and optionally `rigs.txt`, `frames.txt`.
+
+    To re-import, choose **File > Import** and select the export folder. This lets you continue a reconstruction, run undistortion, or visualize results later.
+  </Accordion>
+  <Accordion title="Other formats">
+    Choose **File > Export as...** to export in:
+
+    - **Bundler** — compatible with the Bundler SfM format.
+    - **VisualSfM NVM** — note that VisualSfM applies distortion to measurements while COLMAP applies it to projections, so the NVM export is not fully compatible with VisualSfM.
+    - **PLY** — point cloud with color information.
+    - **VRML** — 3D scene description format.
+  </Accordion>
+  <Accordion title="Importing PLY point clouds">
+    Choose **File > Import from...** to load a plain PLY file with RGB color data. This is useful for visualizing the `fused.ply` dense point cloud output from `stereo_fusion`.
+  </Accordion>
+</AccordionGroup>
+
+## Creating screenshots and screencasts
+
+**Screenshot**: Choose **Extras > Grab image** and save in your preferred format. The coordinate axes are not included.
+
+**Screencast**: Choose **Extras > Grab movie** to build a camera trajectory.
+
+<Steps>
+  <Step title="Add control viewpoints">
+    Navigate the viewer to a desired position and click **Add**. Repeat for each keyframe. COLMAP records the view position and current point and camera sizes.
+  </Step>
+  <Step title="Adjust timing">
+    Double-click cells in the table to modify the number of frames between viewpoints or reorder them.
+  </Step>
+  <Step title="Assemble the movie">
+    Click **Assemble movie**. The output folder contains sequentially numbered frames that can be assembled with FFmpeg:
+
+    ```bash
+    ffmpeg -i frame%06d.png -r 30 -vf scale=1680:1050 movie.mp4
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  Video capture requires the perspective projection model to be active in **Render > Render options**.
+</Note>

@@ -1,0 +1,251 @@
+---
+title: Changelog
+description: Release history and notable changes for COLMAP.
+---
+
+## COLMAP 4.0.2 <span style={{fontSize: '0.75em', color: 'gray'}}>March 18, 2026</span>
+
+**Bug fixes**
+
+- Fix ALIKED keypoint score filtering
+- Fix ALIKED extraction with pycolmap
+- Fix missing reset of mesh simplification options
+
+---
+
+## COLMAP 4.0.1 <span style={{fontSize: '0.75em', color: 'gray'}}>March 15, 2026</span>
+
+**Bug fixes**
+
+- Add missing LightGlue matcher type to GUI
+- Fix checks in `GpuMat` constructor
+- Add destructor to `ModelViewerWidget` to call `makeCurrent()`
+
+---
+
+## COLMAP 4.0.0 <span style={{fontSize: '0.75em', color: 'gray'}}>March 14, 2026</span>
+
+<AccordionGroup>
+  <Accordion title="New features">
+    - Integrated **GLOMAP global SfM pipeline** as a first-class alternative to incremental and hierarchical mappers. Available via `global_mapper` and `automatic_reconstructor --mapper GLOBAL`. GLOMAP is now maintained through the COLMAP repository.
+    - Added **ALIKED** (N16Rot / N32) feature extraction through ONNX, with brute-force and LightGlue matching and scalable matching via pre-trained vocabulary trees.
+    - Added **LightGlue ONNX** feature matching for SIFT and ALIKED descriptors.
+    - Added Python bindings for feature extractor and matcher.
+    - Added support for reading image orientation from EXIF and auto-rotating images during feature extraction and matching.
+    - Added structure-less image registration fallback using a generalized relative pose estimator.
+    - Added `SIMPLE_DIVISION` and `DIVISION` camera models.
+    - Added `FISHEYE` camera model without distortion parameters.
+    - Improved Ceres bundle adjustment performance by ~10% through a single pose parameter block, and by ~15% for `SIMPLE_RADIAL` cameras through analytical Jacobians.
+    - Replaced FreeImage with **OpenImageIO** for ~2.5× faster image I/O and support for more formats.
+    - Added guided geometric verification using a known reconstruction.
+    - Added view graph calibration as a new module.
+    - Added model clustering to partition large reconstructions into sub-models.
+    - Added **mesh simplification** using Quadric Error Metric (QEM) decimation.
+    - Added **mesh texture mapping** for textured meshes from calibrated images.
+    - Added multi-threading support for the (LO)RANSAC loop.
+    - Added support for building shared libraries.
+    - Added automatic fallback to BA CPU solver if GPU solver fails.
+    - Added Python type checking (mypy) for all code.
+    - Added support for visualizing (textured) meshes and drag-and-drop PLY import in the GUI.
+    - Exposed `pycolmap.match_from_pairs` for custom GPU pair matching.
+    - Added Python bindings for depth and normal maps.
+  </Accordion>
+  <Accordion title="Bug fixes">
+    - Fixed guided matching for calibrated non-linear cameras
+    - Fixed database race conditions in mapping pipelines
+    - Fixed MSVC compatibility with `isnan`
+    - Fixed undefined behavior in feature match swapping
+    - Fixed SVD computation in affine transform
+    - Fixed 2D association issue at `AddPoint3D` with `point3D_id`
+    - Fixed several issues in database merging
+    - Fixed MVS workspace image downsizing
+    - Fixed `BundleAdjustmentConfig::NumResiduals` ignoring point statistics
+    - Fixed incorrect propagation of incremental options in automatic reconstructor
+    - Fixed triangulation angle computation in patch match sampling
+    - Fixed inverted units in `ExifFocalLength` metadata extraction
+    - Fixed empty patch match results on CUDA compute >= 100 (Blackwell GPUs)
+    - Fixed `filter_frames_` usage in `FindNextImages`
+    - Fixed `model_aligner` crash by using new pose prior API
+  </Accordion>
+  <Accordion title="Breaking changes">
+    <Warning>
+      This release includes several breaking changes to both the C++ and Python APIs.
+    </Warning>
+
+    - **FreeImage replaced by OpenImageIO.** Minor differences in supported image formats or loaded pixel values are possible.
+    - **Dropped Python 3.9** support due to EOL.
+    - `TwoViewGeometry` fields `cam2_from_cam1`, `E`, `F`, `H` are now `std::optional`.
+    - `Rigid3d` and `Sim3d` parameters stored as a single vector. Use `rotation()` and `translation()` accessors instead of direct member access.
+    - Bundle adjustment cost functors use single pose parameter blocks.
+    - `BundleAdjuster` now returns `std::shared_ptr<BundleAdjusterSummary>` instead of `ceres::SolverSummary`.
+    - Ceres-related CLI options are prefixed with `BundleAdjustmentCeres.*`.
+    - GPS/ENU coordinate conversion functionality cleaned up, breaking the Python interface.
+    - Feature descriptors are now associated with a type propagated through the pipeline. Fails matching if descriptor types are inconsistent.
+    - Pose priors are now associated with generic sensor measurement data.
+    - `DatabaseCache` initialization consolidated into a single options struct.
+    - Paths switched from `std::string` to `std::filesystem::path` throughout C++. Python `pathlib.Path` objects are auto-converted.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## COLMAP 3.13.0 <span style={{fontSize: '0.75em', color: 'gray'}}>November 7, 2025</span>
+
+<AccordionGroup>
+  <Accordion title="New features">
+    - Improved human-readable consistency checks for reconstructions with rigs, cameras, frames, and images.
+    - Improved multi-GPU feature extraction and matching performance by removing global mutex.
+    - Improved robustness of pose prior mapper against outlier priors.
+    - Improved reconstruction initialization performance through parallelization.
+    - Added CUDA-enabled pycolmap package for Linux with automatic publishing to PyPI.
+    - Added `random_seed` parameter for fully deterministic reconstruction.
+    - Added filtering of stationary points in two-view geometry estimation.
+    - Added geometric verification with rig constraints.
+    - Added option to skip matching for image pairs within the same frame.
+    - Added option to keep specific cameras or rigs constant during reconstruction.
+    - Added abstract database interface for easier integration with other backends.
+    - Added experimental feature sub-selection for global bundle adjustment.
+    - Added support for Qt6 (Qt5 still fully supported).
+    - Added official support for Python 3.14.
+  </Accordion>
+  <Accordion title="Bug fixes">
+    - Fixed various issues with rig support
+    - Fixed rare deadlocks in feature matching
+    - Fixed UTF-8 database paths on Windows
+    - Fixed bundle adjustment performance regression due to changed Gauge behavior
+    - Removed custom manifold from colmap to avoid issues with pyceres
+    - Fixed rare crash of GUI when clearing the model viewer
+    - Fixed focal length extraction from 35mm equivalent EXIF information
+    - Fixed coordinate bug in `ComputeEqualPartsBboxes`
+  </Accordion>
+  <Accordion title="Breaking changes">
+    - Dropped official support for Python 3.8 and macOS x86.
+    - Upgraded to pybind11 3.x.
+    - Removed deprecated rig bundle adjuster command (use the default bundle adjuster with rig configurator instead).
+    - Correspondence graph now allows one-to-many matches. Previously only one-to-one matches were added.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## COLMAP 3.12.x patch releases
+
+<AccordionGroup>
+  <Accordion title="3.12.6 — September 17, 2025">
+    **Improvements**
+    - Upgrade to pybind 3.0.1 and use smart holder for all classes
+    - Support both Qt5 and Qt6
+    - Ensure download support on Ubuntu by installing libssl-dev
+    - Add `mvs::model` bindings for covisibility support in pycolmap
+    - Add missing rig and frame interfaces for pycolmap database
+    - Improved Gauge logic for fixing two views
+
+    **Bug fixes**
+    - Fix focal length extraction from 35mm equivalent
+    - Fix inconsistent pycolmap naming for `RegisterFrame` and `DeRegisterFrame`
+    - Fix bundle adjustment with constant rig-from-world pose
+  </Accordion>
+  <Accordion title="3.12.5 — August 22, 2025">
+    **Improvements**
+    - Additional safety checks with clearer error messages for misconfigured rigs/cameras/frames/images
+    - Recover original metric reconstruction scale when configured rigs are used
+
+    **Bug fixes**
+    - Fix incompatibilities due to redundant symbol definition in pycolmap/pyceres
+    - Fix error threshold for generalized relative pose (pixel space)
+    - Fix rig configuration when IDs are inconsistent between database and reconstruction
+    - Fix CMake configuration with Boost 1.89 or newer
+    - Fix viewer crash when clearing the reconstruction
+  </Accordion>
+  <Accordion title="3.12.4 — August 4, 2025">
+    **Bug fixes**
+    - Fix global bundle adjustment performance regression caused by a change in gauge fixing mechanism
+  </Accordion>
+  <Accordion title="3.12.3 — July 16, 2025">
+    **Bug fixes**
+    - Set correct version number
+  </Accordion>
+  <Accordion title="3.12.2 — July 16, 2025">
+    **Bug fixes**
+    - Fix `VisualIndex::Read` binding (static)
+    - Fix CMake OpenMP component discovery for newer CMake versions
+    - Fix bug affecting GPU feature matching
+    - Fix potential deadlock in job queue
+    - Update `FindMetis.cmake` to link `GK_LIBRARIES`
+    - Fix backwards compatibility in mapper with custom image list
+  </Accordion>
+  <Accordion title="3.12.1 — July 5, 2025">
+    **Bug fixes**
+    - Fix Docker runtime libraries
+    - Fix spatial matcher bug
+    - Minor documentation fixes
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## COLMAP 3.12.0 <span style={{fontSize: '0.75em', color: 'gray'}}>June 30, 2025</span>
+
+<AccordionGroup>
+  <Accordion title="New features">
+    - **Sensor rig support** — model multi-camera rigs and panoramas. See the [rigs documentation](https://colmap.github.io/rigs.html) for details and usage examples.
+    - Automatic download and caching of vocabulary trees and other resources.
+    - Support for converting between LLA and UTM coordinates.
+    - Improved minimal solvers for affine transform and generalized absolute/relative pose.
+    - Improved absolute pose estimation by minimizing pixel error in image space.
+    - Replaced FLANN with **faiss** for faster CPU-based feature matching and vocabulary tree retrieval.
+    - Support for propagating relative pose covariance.
+    - Support for visualizing models with arbitrary origin and scale (e.g., GPS space).
+    - Reconstruction benchmark for ETH3D, IMC, and BlendedMVS datasets.
+  </Accordion>
+  <Accordion title="Bug fixes">
+    - Fixed RANSAC stopping criterion
+    - Fixed and improved two-view pose and triangulation angle estimation
+    - Fixed rare deadlock during vocabulary tree feature matching
+  </Accordion>
+  <Accordion title="Breaking changes">
+    - Reconstruction and database serialization now includes rigs and frames. New files `rigs.{bin,txt}` and `frames.{bin,txt}` in reconstruction output; new tables in database. Fully backwards and forwards compatible.
+    - Sensor poses composed as `sensor_from_world = sensor_from_rig * rig_from_world`. `image.cam_from_world()` now returns a copy of the composed pose.
+    - Default bundle adjuster supports sensor rigs; rig bundle adjuster is deprecated.
+    - FLANN-based vocabulary trees incompatible with faiss. New trees auto-downloaded if no `vocab_tree_path` provided.
+    - Removed official support for Ubuntu 20.04, macOS 13, and Visual Studio 2019.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## COLMAP 3.11.x
+
+<AccordionGroup>
+  <Accordion title="3.11.1 — December 6, 2024">
+    **Bug fixes**
+    - Fix typo in pycolmap `align_reconstruction_to_locations` interface
+    - Restore ceres bindings needed to use pycolmap bundle adjustment without pyceres
+    - Fix RANSAC max error setting in pose prior bundle adjustment alignment
+  </Accordion>
+  <Accordion title="3.11.0 — November 28, 2024">
+    **New features**
+    - New **pose prior based incremental mapper** supporting absolute pose priors from GPS measurements.
+    - New bundle adjustment **covariance estimation** — significantly faster and more robust than Ceres.
+    - API documentation with auto-generated stubs for pycolmap.
+    - Use PoseLib minimal solvers for faster performance and improved robustness.
+    - Experimental support for CUDA-based bundle adjustment through Ceres.
+    - Support for reading 16-bit PNG grayscale images.
+    - New `RAD_TAN_THIN_PRISM_FISHEYE` camera model supporting Meta Project Aria devices.
+    - Replace numerical with analytical Jacobian in image undistortion.
+
+    **Bug fixes (long-standing)**
+    - Fixed non-deterministic CUDA SIFT feature extractor (broken since 3.10)
+    - Fixed orientation detection of covariant/affine SIFT (broken since initial release)
+    - Fixed point triangulator crash due to bug in observation manager (broken since 3.10)
+    - Fixed sequential feature matcher overlap for the farthest image (broken since initial release)
+    - Fixed rare deadlock during matching due to concurrent database access (broken since 3.10)
+    - Fixed little/big endian detection (broken since 3.1)
+
+    **Breaking changes**
+    - Dropped support for Ubuntu 18.04 and Visual Studio 2019.
+    - Upgraded to C++17 standard; C++14 in CUDA code.
+    - New `pose_priors` database table.
+    - Multiple pycolmap API renames. See the full changelog for the complete list.
+  </Accordion>
+</AccordionGroup>

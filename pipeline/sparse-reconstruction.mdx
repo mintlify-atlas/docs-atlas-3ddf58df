@@ -1,0 +1,204 @@
+---
+title: "Sparse Reconstruction"
+description: "Recover camera poses and a sparse 3D point cloud using incremental, global, or hierarchical Structure-from-Motion."
+---
+
+Sparse reconstruction (Structure-from-Motion) estimates the 3D positions of scene points and the camera poses of all input images from the feature matches produced in the previous stage. COLMAP provides several SfM pipelines suited to different dataset sizes and capture scenarios.
+
+## Pipeline overview
+
+<CardGroup cols={2}>
+  <Card title="Incremental (mapper)" icon="chart-line">
+    Seed from an image pair and grow the reconstruction image by image. Most robust, especially for unordered collections.
+  </Card>
+  <Card title="Global (global_mapper)" icon="globe">
+    Solve for all poses simultaneously via rotation averaging. Faster for large datasets but requires good focal length priors.
+  </Card>
+  <Card title="Hierarchical (hierarchical_mapper)" icon="sitemap">
+    Partition the scene into overlapping submodels, reconstruct each independently, then merge. Parallelizes the reconstruction.
+  </Card>
+  <Card title="Pose prior (pose_prior_mapper)" icon="map-location-dot">
+    Incorporates known prior camera positions (e.g., GPS) as constraints during reconstruction.
+  </Card>
+</CardGroup>
+
+## Incremental SfM
+
+The incremental mapper is the default and most robust SfM pipeline. It starts from a carefully selected initial image pair and extends the reconstruction by alternating between image registration and bundle adjustment.
+
+### How it works
+
+<Steps>
+  <Step title="Initialization">
+    COLMAP finds an initial image pair with good baseline and sufficient inlier matches (minimum `init_min_num_inliers = 100`, minimum triangulation angle `init_min_tri_angle = 16°`). The initial pair is triangulated to seed the scene.
+  </Step>
+  <Step title="Image registration">
+    The mapper finds the next best image to register using one of three selection strategies: `MAX_VISIBLE_POINTS_NUM`, `MAX_VISIBLE_POINTS_RATIO`, or `MIN_UNCERTAINTY` (default). Absolute pose is estimated via P3P RANSAC (minimum `abs_pose_min_num_inliers = 30`, minimum inlier ratio `abs_pose_min_inlier_ratio = 0.25`).
+  </Step>
+  <Step title="Triangulation">
+    New 3D points are triangulated from the newly registered image's observations. Tracks are completed and merged transitively via the correspondence graph.
+  </Step>
+  <Step title="Bundle adjustment">
+    Local bundle adjustment optimizes the newly registered image and its `ba_local_num_images = 6` most connected neighbors. Global bundle adjustment is run periodically as the reconstruction grows.
+  </Step>
+  <Step title="Filtering">
+    Frames and 3D points with high reprojection error (threshold `filter_max_reproj_error = 4.0 px`) or insufficient triangulation angle (`filter_min_tri_angle = 1.5°`) are filtered.
+  </Step>
+  <Step title="Multi-model reconstruction">
+    If not all images register into a single model, COLMAP attempts to reconstruct separate models for the remaining images.
+  </Step>
+</Steps>
+
+### CLI command
+
+```bash
+mkdir -p $DATASET_PATH/sparse
+
+colmap mapper \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --output_path $DATASET_PATH/sparse
+```
+
+### Key options
+
+| Option | Default | Description |
+|---|---|---|
+| `--Mapper.init_min_num_inliers` | `100` | Minimum inliers for the initial image pair. |
+| `--Mapper.init_min_tri_angle` | `16.0` | Minimum triangulation angle (degrees) for initialization. |
+| `--Mapper.abs_pose_min_num_inliers` | `30` | Minimum inliers for absolute pose estimation. |
+| `--Mapper.abs_pose_min_inlier_ratio` | `0.25` | Minimum inlier ratio for absolute pose estimation. |
+| `--Mapper.ba_local_num_images` | `6` | Number of images in local bundle adjustment. |
+| `--Mapper.filter_max_reproj_error` | `4.0` | Maximum reprojection error (px) for filtering. |
+| `--Mapper.filter_min_tri_angle` | `1.5` | Minimum triangulation angle (degrees) for filtering. |
+| `--Mapper.max_reg_trials` | `3` | Maximum attempts to register an image. |
+| `--Mapper.num_threads` | `-1` (auto) | Number of threads. |
+
+<Tip>
+If COLMAP fails to initialize automatically, manually specify an initial image pair via **Reconstruction > Reconstruction options > Init** in the GUI, choosing images with sufficient matches from different viewpoints.
+</Tip>
+
+## Global SfM
+
+The global mapper solves for all camera poses simultaneously via rotation averaging and global positioning rather than growing the reconstruction incrementally. This can be faster for large datasets but is less robust to outliers.
+
+<Warning>
+The global mapper requires reasonably good focal length priors. If reliable intrinsics are not available from EXIF or lab calibration, run `view_graph_calibrator` first.
+</Warning>
+
+### View graph calibration (recommended pre-step)
+
+`view_graph_calibrator` estimates focal lengths and other intrinsic parameters from pairwise geometric relations in the view graph. It modifies the database **in place**, so work on a copy:
+
+```bash
+cp $DATASET_PATH/database.db $DATASET_PATH/database_global.db
+
+colmap view_graph_calibrator \
+    --database_path $DATASET_PATH/database_global.db
+```
+
+### Running global SfM
+
+```bash
+mkdir -p $DATASET_PATH/sparse
+
+colmap global_mapper \
+    --database_path $DATASET_PATH/database_global.db \
+    --image_path $DATASET_PATH/images \
+    --output_path $DATASET_PATH/sparse
+```
+
+To run standalone rotation averaging on an existing view graph:
+
+```bash
+colmap rotation_averager \
+    --database_path $DATASET_PATH/database_global.db \
+    --output_path $DATASET_PATH/sparse/0
+```
+
+## Hierarchical SfM
+
+The hierarchical mapper partitions the scene into overlapping submodels using graph-based clustering (via Metis), reconstructs each submodel independently (in parallel), then merges them into a single reconstruction. Recommended for very large datasets.
+
+```bash
+mkdir -p $DATASET_PATH/sparse
+
+colmap hierarchical_mapper \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --output_path $DATASET_PATH/sparse
+```
+
+<Note>
+After hierarchical mapping, run a few rounds of point triangulation and bundle adjustment to refine the merged reconstruction.
+</Note>
+
+## Pose prior mapper
+
+Incorporates prior camera positions (e.g., from GPS) as soft constraints during incremental SfM. Useful when geo-referenced reconstruction is needed.
+
+```bash
+colmap pose_prior_mapper \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --output_path $DATASET_PATH/sparse
+```
+
+Prior positions are constrained via a robust loss with scale controlled by `--Mapper.prior_position_loss_scale` (default `7.815`, corresponding to chi² for 3DOF at 95%).
+
+## Bundle adjustment
+
+Run a standalone global bundle adjustment pass on an already-reconstructed model, e.g., to refine intrinsics after registering new images:
+
+```bash
+colmap bundle_adjuster \
+    --input_path $DATASET_PATH/sparse/0 \
+    --output_path $DATASET_PATH/sparse/0
+```
+
+## Multi-model reconstruction and merging
+
+When not all images register into a single model, COLMAP outputs multiple sub-models under `sparse/0`, `sparse/1`, etc.
+
+To merge two models that share common registered images:
+
+```bash
+colmap model_merger \
+    --input_path1 $DATASET_PATH/sparse/0 \
+    --input_path2 $DATASET_PATH/sparse/1 \
+    --output_path $DATASET_PATH/sparse/merged
+```
+
+## Output format
+
+The sparse reconstruction is written to the output path. Each model sub-folder contains:
+
+```
+sparse/
+  0/
+    cameras.bin   # Camera intrinsic parameters
+    images.bin    # Camera poses and 2D observations
+    points3D.bin  # 3D point positions, colors, and tracks
+    frames.bin    # Frame data
+    rigs.bin      # Rig configuration
+```
+
+Text format (`.txt`) files are also available. Use `colmap model_converter` to convert between binary and text formats, or to export to PLY, NVM, Bundler, and other formats.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Not all images register">
+    - Run additional matching (exhaustive, guided matching, or increased vocabulary tree neighbors).
+    - Manually set an initial image pair in the GUI under **Reconstruction > Reconstruction options > Init**.
+    - Check that images have sufficient visual overlap (each scene element should appear in at least 3 images).
+  </Accordion>
+  <Accordion title="Reconstruction drifts or has large errors">
+    - Enable guided matching (`--FeatureMatching.guided_matching 1`) after an initial reconstruction to add more verified matches.
+    - Increase `--Mapper.ba_local_num_images` to include more images in local bundle adjustment.
+    - Run a standalone `bundle_adjuster` pass with intrinsic refinement enabled.
+  </Accordion>
+  <Accordion title="Global mapper produces poor results">
+    Run `view_graph_calibrator` to calibrate intrinsics from the view graph before running `global_mapper`. The global pipeline depends on reliable focal length priors.
+  </Accordion>
+</AccordionGroup>

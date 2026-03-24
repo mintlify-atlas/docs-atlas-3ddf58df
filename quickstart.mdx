@@ -1,80 +1,377 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Run your first 3D reconstruction with COLMAP using either automatic reconstruction or the step-by-step pipeline."
 ---
 
-## Get started in three steps
+This guide walks through two approaches to running COLMAP:
 
-Get your documentation site running locally and make your first customization.
+- **Automatic reconstruction** — the fastest path: a single command runs the entire pipeline.
+- **Manual pipeline** — run each step individually for more control over parameters.
 
-### Step 1: Set up your local environment
+Both approaches require a folder of overlapping images as input.
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Tip>
+  For best reconstruction results: capture images with good texture and high visual overlap, ensure each object appears in at least 3 images, and avoid images taken from the same location with only camera rotation.
+</Tip>
 
-### Step 2: Deploy your changes
+## Automatic reconstruction
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+The automatic reconstructor runs feature extraction, matching, sparse reconstruction, and dense reconstruction in one command.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Steps>
+  <Step title="Prepare your image folder">
+    Organize your project with an `images` subdirectory:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```
+    /path/to/project/
+    └── images/
+        ├── image1.jpg
+        ├── image2.jpg
+        └── ...
+    ```
 
-### Step 3: Go live
+    COLMAP recursively scans the image directory and supports all formats recognized by OpenImageIO. Other files are ignored.
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Run automatic reconstruction">
+    ```bash
+    # Set the dataset path
+    DATASET_PATH=/path/to/project
+
+    colmap automatic_reconstructor \
+        --workspace_path $DATASET_PATH \
+        --image_path $DATASET_PATH/images
+    ```
+
+    Key options:
+
+    | Option | Values | Description |
+    |---|---|---|
+    | `--quality` | `LOW`, `MEDIUM`, `HIGH`, `EXTREME` | Trade-off between speed and reconstruction quality |
+    | `--data_type` | `INDIVIDUAL`, `VIDEO`, `INTERNET` | Tunes settings for the capture scenario |
+    | `--feature` | `SIFT`, `ALIKED` | Feature extraction algorithm |
+    | `--mapper` | `INCREMENTAL`, `HIERARCHICAL`, `GLOBAL` | SfM pipeline variant |
+    | `--mesher` | `POISSON`, `DELAUNAY` | Surface reconstruction method |
+
+    Any command accepts `-h` to list all available options:
+
+    ```bash
+    colmap automatic_reconstructor -h
+    ```
+  </Step>
+
+  <Step title="Inspect the output">
+    After reconstruction, the project folder contains:
+
+    ```
+    /path/to/project/
+    ├── images/
+    │   ├── image1.jpg
+    │   └── ...
+    ├── sparse/
+    │   └── 0/
+    │       ├── rigs.bin
+    │       ├── cameras.bin
+    │       ├── frames.bin
+    │       ├── images.bin
+    │       └── points3D.bin
+    ├── dense/
+    │   └── 0/
+    │       ├── images/
+    │       ├── sparse/
+    │       ├── stereo/
+    │       ├── fused.ply
+    │       ├── meshed-poisson.ply
+    │       └── meshed-delaunay.ply
+    └── database.db
+    ```
+
+    - `sparse/` contains the sparse SfM model (camera poses and sparse point cloud).
+    - `dense/fused.ply` is the dense colored point cloud.
+    - `dense/meshed-poisson.ply` and `dense/meshed-delaunay.ply` are the surface meshes.
+
+    Import the dense point cloud into COLMAP with **File > Import model from...** and select `fused.ply`. Visualize mesh files with an external viewer such as [Meshlab](https://www.meshlab.net/).
+  </Step>
+</Steps>
+
+## GUI quickstart
+
+You can also run automatic reconstruction interactively through the graphical user interface.
+
+<Steps>
+  <Step title="Launch the GUI">
+    <Tabs>
+      <Tab title="Linux / macOS">
+        ```bash
+        colmap gui
+        ```
+      </Tab>
+      <Tab title="Windows">
+        Double-click `COLMAP.bat` or run it from Command Prompt:
+
+        ```bat
+        COLMAP.bat
+        ```
+      </Tab>
+      <Tab title="From build directory">
+        ```bash
+        ./src/colmap/exe/colmap gui
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Run automatic reconstruction">
+    Click **Reconstruction > Automatic Reconstruction** and specify:
+
+    - **Workspace folder**: the project folder (e.g., `path/to/project`)
+    - **Image folder**: the folder containing your images (e.g., `path/to/project/images`)
+
+    The output is written to the workspace folder in the same structure as the CLI output above.
+  </Step>
+</Steps>
+
+<Note>
+  To avoid having to re-select paths every time, save your project via **File > Save project**. The saved `.ini` file stores the database path, image folder, and all parameter settings. Reopen it later with **File > Open project**.
+</Note>
+
+## Manual step-by-step pipeline
+
+If you need more control over individual parameters, run each stage separately.
+
+<Steps>
+  <Step title="Set up project paths">
+    ```bash
+    DATASET_PATH=/path/to/dataset
+    ```
+
+    Your image folder should already exist at `$DATASET_PATH/images/`.
+  </Step>
+
+  <Step title="Extract features">
+    Detect and describe keypoints in each image. By default, COLMAP extracts SIFT features using the GPU if available, or falls back to CPU:
+
+    ```bash
+    colmap feature_extractor \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images
+    ```
+
+    To use the ALIKED neural feature extractor:
+
+    ```bash
+    colmap feature_extractor \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images \
+        --FeatureExtraction.type ALIKED
+    ```
+
+    To force CPU-only extraction (useful on headless servers):
+
+    ```bash
+    colmap feature_extractor \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images \
+        --FeatureExtraction.use_gpu 0
+    ```
+
+    All extracted data is stored in `database.db`. If you cancel and restart, COLMAP continues from where it left off.
+  </Step>
+
+  <Step title="Match features">
+    Find correspondences between image pairs. Choose a matching mode based on your dataset:
+
+    <Tabs>
+      <Tab title="Exhaustive (recommended for small datasets)">
+        Every image is matched against every other image. Best reconstruction quality for collections up to a few hundred images.
+
+        ```bash
+        colmap exhaustive_matcher \
+            --database_path $DATASET_PATH/database.db
+        ```
+      </Tab>
+      <Tab title="Sequential (video / ordered sequences)">
+        Matches consecutive frames. Includes built-in loop detection using a vocabulary tree. Image file names must be in sequential order (e.g., `image0001.jpg`, `image0002.jpg`).
+
+        ```bash
+        colmap sequential_matcher \
+            --database_path $DATASET_PATH/database.db
+        ```
+      </Tab>
+      <Tab title="Vocabulary tree (large collections)">
+        Each image is matched against its visual nearest neighbors. Recommended for thousands of images. Requires a pre-trained vocabulary tree, which can be downloaded from [demuc.de/colmap](https://demuc.de/colmap/).
+
+        ```bash
+        colmap vocab_tree_matcher \
+            --database_path $DATASET_PATH/database.db \
+            --VocabTreeMatching.vocab_tree_path /path/to/vocab_tree.bin
+        ```
+      </Tab>
+      <Tab title="Spatial (GPS / location priors)">
+        Matches each image against its spatial nearest neighbors. COLMAP automatically uses GPS coordinates from EXIF metadata if available.
+
+        ```bash
+        colmap spatial_matcher \
+            --database_path $DATASET_PATH/database.db
+        ```
+      </Tab>
+    </Tabs>
+
+    <Note>
+      Feature matching can take significant time: a few minutes for tens of images, a few hours for hundreds, and days for thousands with exhaustive matching. COLMAP skips already-matched pairs if you cancel and restart.
+    </Note>
+  </Step>
+
+  <Step title="Sparse reconstruction (SfM)">
+    Run incremental Structure-from-Motion to recover camera poses and a sparse 3D point cloud:
+
+    ```bash
+    mkdir -p $DATASET_PATH/sparse
+
+    colmap mapper \
+        --database_path $DATASET_PATH/database.db \
+        --image_path $DATASET_PATH/images \
+        --output_path $DATASET_PATH/sparse
+    ```
+
+    COLMAP loads the database into memory, seeds from an initial image pair, and incrementally extends the reconstruction. Results are saved as binary model files under `sparse/0/`, `sparse/1/`, etc. (one per reconstructed component).
+
+    **Alternative: global SfM**
+
+    To use the global SfM pipeline instead, which solves for all camera poses simultaneously using rotation averaging:
+
+    ```bash
+    # Optional but recommended: calibrate intrinsics from the view graph.
+    # This modifies the database in-place, so work on a copy.
+    cp $DATASET_PATH/database.db $DATASET_PATH/database_global.db
+    colmap view_graph_calibrator \
+        --database_path $DATASET_PATH/database_global.db
+
+    colmap global_mapper \
+        --database_path $DATASET_PATH/database_global.db \
+        --image_path $DATASET_PATH/images \
+        --output_path $DATASET_PATH/sparse
+    ```
+
+    <Tip>
+      The global mapper depends on good focal length priors. Run `view_graph_calibrator` first if reliable intrinsics are not available from EXIF or lab calibration.
+    </Tip>
+  </Step>
+
+  <Step title="Dense reconstruction (MVS)">
+    After sparse reconstruction, compute a dense point cloud and optionally a surface mesh.
+
+    **Undistort images**
+
+    ```bash
+    mkdir -p $DATASET_PATH/dense
+
+    colmap image_undistorter \
+        --image_path $DATASET_PATH/images \
+        --input_path $DATASET_PATH/sparse/0 \
+        --output_path $DATASET_PATH/dense \
+        --output_type COLMAP \
+        --max_image_size 2000
+    ```
+
+    **Compute depth and normal maps**
+
+    <Warning>
+      This step requires CUDA. During processing, display performance may degrade significantly. If your GPU runs out of memory, see the [FAQ](/guides/faq) for mitigation options.
+    </Warning>
+
+    ```bash
+    colmap patch_match_stereo \
+        --workspace_path $DATASET_PATH/dense \
+        --workspace_format COLMAP \
+        --PatchMatchStereo.geom_consistency true
+    ```
+
+    **Fuse depth maps into a point cloud**
+
+    ```bash
+    colmap stereo_fusion \
+        --workspace_path $DATASET_PATH/dense \
+        --workspace_format COLMAP \
+        --input_type geometric \
+        --output_path $DATASET_PATH/dense/fused.ply
+    ```
+  </Step>
+
+  <Step title="Meshing (optional)">
+    Reconstruct a surface mesh from the fused point cloud.
+
+    <Tabs>
+      <Tab title="Poisson meshing">
+        ```bash
+        colmap poisson_mesher \
+            --input_path $DATASET_PATH/dense/fused.ply \
+            --output_path $DATASET_PATH/dense/meshed-poisson.ply
+        ```
+      </Tab>
+      <Tab title="Delaunay meshing">
+        ```bash
+        colmap delaunay_mesher \
+            --input_path $DATASET_PATH/dense \
+            --output_path $DATASET_PATH/dense/meshed-delaunay.ply
+        ```
+      </Tab>
+    </Tabs>
+
+    Optionally simplify the mesh to reduce file size:
+
+    ```bash
+    colmap mesh_simplifier \
+        --input_path $DATASET_PATH/dense/meshed-poisson.ply \
+        --output_path $DATASET_PATH/dense/meshed-poisson-simplified.ply \
+        --MeshSimplification.target_face_ratio 0.25
+    ```
+
+    Optionally produce a textured mesh with a UV atlas:
+
+    ```bash
+    colmap mesh_texturer \
+        --workspace_path $DATASET_PATH/dense \
+        --input_path $DATASET_PATH/dense/meshed-poisson.ply \
+        --output_path $DATASET_PATH/dense/textured
+    ```
+
+    <Note>
+      Mesh files (`meshed-*.ply`) cannot be visualized in COLMAP directly. Use an external viewer such as [Meshlab](https://www.meshlab.net/). The dense point cloud (`fused.ply`) can be imported in COLMAP via **File > Import model from...**.
+    </Note>
+  </Step>
+</Steps>
+
+## Running on a headless server
+
+On machines without a display (cluster, cloud), COLMAP automatically uses CUDA for feature extraction and matching if available. To force CPU mode:
+
+```bash
+colmap feature_extractor \
+    --database_path $DATASET_PATH/database.db \
+    --image_path $DATASET_PATH/images \
+    --FeatureExtraction.use_gpu 0
+
+colmap exhaustive_matcher \
+    --database_path $DATASET_PATH/database.db \
+    --FeatureMatching.use_gpu 0
+```
+
+If your system has multiple CUDA-enabled GPUs, select specific devices with the `--FeatureExtraction.gpu_index` and `--FeatureMatching.gpu_index` options.
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="CLI reference" icon="terminal" href="/interfaces/cli">
+    Explore all available commands and options for scripting and automation.
+  </Card>
+  <Card title="Feature extraction" icon="eye" href="/pipeline/feature-extraction">
+    Learn about SIFT and ALIKED feature extraction parameters.
+  </Card>
+  <Card title="Sparse reconstruction" icon="map" href="/pipeline/sparse-reconstruction">
+    Understand incremental, global, and hierarchical SfM pipelines.
+  </Card>
+  <Card title="Dense reconstruction" icon="layers" href="/pipeline/dense-reconstruction">
+    Configure PatchMatch stereo, fusion, and meshing.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

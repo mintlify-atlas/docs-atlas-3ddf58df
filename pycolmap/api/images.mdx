@@ -1,0 +1,225 @@
+---
+title: Images
+description: API reference for pycolmap.Image, pycolmap.Point2D, and pycolmap.Rigid3d — image metadata, 2D keypoints, and camera poses.
+---
+
+## pycolmap.Image
+
+`pycolmap.Image` stores the metadata for one image: its name, associated camera, 2D keypoint observations, and a reference to its frame (which holds the pose).
+
+### Constructor
+
+```python
+import pycolmap
+
+# Default constructor
+image = pycolmap.Image()
+
+# With fields
+image = pycolmap.Image(
+    name="frame_0001.jpg",
+    camera_id=1,
+    image_id=pycolmap.INVALID_IMAGE_ID,  # assigned automatically on add
+)
+
+# With Point2D observations
+points2D = pycolmap.Point2DList([
+    pycolmap.Point2D(xy=[100.5, 200.3]),
+    pycolmap.Point2D(xy=[400.0, 300.0]),
+])
+image = pycolmap.Image(name="frame_0001.jpg", points2D=points2D, camera_id=1)
+
+# With raw keypoint coordinates
+image = pycolmap.Image(
+    name="frame_0001.jpg",
+    keypoints=[[100.5, 200.3], [400.0, 300.0]],
+    camera_id=1,
+)
+```
+
+### Properties
+
+```python
+image.image_id    # int — unique image ID
+image.camera_id   # int — ID of the associated camera
+image.frame_id    # int — ID of the associated frame
+image.name        # str — image file name (relative to image root)
+image.points2D    # Point2DList — list of 2D keypoints
+image.has_pose    # bool — True if the image has a registered pose
+```
+
+### Accessing the camera and frame objects
+
+```python
+# Returns Camera object or None if not linked
+camera = image.camera
+
+# Returns Frame object or None if not linked
+frame = image.frame
+```
+
+### Pose access
+
+The pose is stored on the associated `Frame` as a `Rigid3d` transform. Access it via:
+
+```python
+# Returns Rigid3d (cam_from_world) — the transform from world to camera space
+# Works for both trivial frames and non-trivial rigs
+pose = image.cam_from_world()
+
+rotation = pose.rotation      # quaternion as numpy array (4,) [qw, qx, qy, qz]
+translation = pose.translation  # numpy array (3,)
+matrix = pose.matrix()        # 3x4 transformation matrix
+
+# Camera center in world space
+center = image.projection_center()  # numpy array (3,)
+
+# Principal viewing direction in world space
+direction = image.viewing_direction()  # numpy array (3,)
+```
+
+<Note>
+  `image.cam_from_world()` is read-only and correctly handles multi-sensor rigs. To set the pose, register the associated frame with `reconstruction.register_frame(frame_id)` or use `reconstruction.add_image_with_trivial_frame(image, cam_from_world)`.
+</Note>
+
+### Point2D access
+
+```python
+# Number of 2D points (keypoints)
+image.num_points2D()
+
+# Number of triangulated 2D points
+image.num_points3D
+
+# Direct accessor by index
+point2D = image.point2D(idx)
+
+# Iterate all 2D points
+for i, p in enumerate(image.points2D):
+    print(f"  [{i}] xy={p.xy}, has_3D={p.has_point3D()}")
+
+# Get indices of observations with a 3D point
+obs_idxs = image.get_observation_point2D_idxs()
+
+# Get all 2D points that observe a 3D point
+obs_points = image.get_observation_points2D()
+```
+
+### Modifying point associations
+
+```python
+# Mark a 2D point as triangulated
+image.set_point3D_for_point2D(point2D_idx=5, point3D_id=42)
+
+# Unmark a 2D point
+image.reset_point3D_for_point2D(point2D_idx=5)
+
+# Check if image observes a specific 3D point
+image.has_point3D(point3D_id=42)  # -> bool
+```
+
+### Projection
+
+```python
+import numpy as np
+
+# Project a 3D world point onto the image (requires camera pointer set)
+projected = image.project_point(point3D=np.array([1.0, 2.0, 5.0]))
+```
+
+---
+
+## pycolmap.Point2D
+
+`pycolmap.Point2D` represents a single 2D keypoint in an image.
+
+### Constructor and properties
+
+```python
+# Default
+p = pycolmap.Point2D()
+
+# With position
+p = pycolmap.Point2D(xy=[100.5, 200.3])
+
+# With position and 3D point association
+p = pycolmap.Point2D(xy=[100.5, 200.3], point3D_id=42)
+
+# Properties
+p.xy           # numpy array (2,) — pixel position
+p.x()          # float — x coordinate
+p.y()          # float — y coordinate
+p.point3D_id   # int — ID of the corresponding 3D point, or INVALID_POINT3D_ID
+p.has_point3D()  # bool — True if associated with a 3D point
+```
+
+---
+
+## pycolmap.Rigid3d
+
+`pycolmap.Rigid3d` represents a 6-DOF rigid-body transform (rotation + translation). Camera poses are stored as `cam_from_world` transforms.
+
+### Constructor
+
+```python
+import pycolmap
+import numpy as np
+from scipy.spatial.transform import Rotation
+
+# Default (identity)
+transform = pycolmap.Rigid3d()
+
+# From quaternion and translation
+q = np.array([1.0, 0.0, 0.0, 0.0])  # [qw, qx, qy, qz]
+t = np.array([0.1, -0.2, 3.0])
+transform = pycolmap.Rigid3d(rotation=q, translation=t)
+
+# From 3x4 matrix
+M = np.eye(3, 4)
+transform = pycolmap.Rigid3d(matrix=M)
+```
+
+### Properties and methods
+
+```python
+transform.rotation     # numpy array (4,) — quaternion [qw, qx, qy, qz]
+transform.translation  # numpy array (3,) — translation vector
+transform.params       # numpy array (7,) — [qw, qx, qy, qz, tx, ty, tz]
+
+# Get the 3x4 transformation matrix
+M = transform.matrix()
+
+# Get the camera center in world space (inverse translation)
+center = transform.tgt_origin_in_src()
+
+# Compose transforms
+composed = transform1 * transform2
+
+# Transform a 3D point
+point_in_cam = transform * point_in_world  # numpy (3,)
+
+# Transform a batch of points (N, 3)
+points_in_cam = transform * points_in_world
+
+# Compute inverse
+inverse = transform.inverse()
+
+# Interpolate between two poses at parameter t in [0, 1]
+interpolated = pycolmap.Rigid3d.interpolate(
+    cam_from_world1=pose1,
+    cam_from_world2=pose2,
+    t=0.5,
+)
+```
+
+### Converting between registered images
+
+```python
+reconstruction = pycolmap.Reconstruction("/path/to/sparse/0")
+
+for image_id in reconstruction.reg_image_ids():
+    image = reconstruction.image(image_id)
+    pose = image.cam_from_world()          # Rigid3d
+    center = image.projection_center()    # camera center in world
+    direction = image.viewing_direction()  # principal axis
+```

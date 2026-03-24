@@ -1,0 +1,315 @@
+---
+title: Features
+description: API reference for feature extraction and matching in PyCOLMAP — keypoints, descriptors, and pipeline matching functions.
+---
+
+PyCOLMAP provides two levels of API for features:
+
+- **Pipeline functions** (`extract_features`, `match_exhaustive`, etc.) that read/write from an SQLite database, mirroring the COLMAP CLI.
+- **Low-level classes** (`FeatureExtractor`, `FeatureMatcher`) for direct programmatic extraction and matching without a database.
+
+## FeatureKeypoint
+
+`pycolmap.FeatureKeypoint` stores a detected keypoint and its affine shape.
+
+```python
+kp = pycolmap.FeatureKeypoint()
+
+kp.x    # float — x pixel coordinate
+kp.y    # float — y pixel coordinate
+kp.a11  # float — affine shape element (1,1)
+kp.a12  # float — affine shape element (1,2)
+kp.a21  # float — affine shape element (2,1)
+kp.a22  # float — affine shape element (2,2)
+
+# Compute derived quantities
+kp.compute_scale()        # float — isotropic scale
+kp.compute_scale_x()      # float
+kp.compute_scale_y()      # float
+kp.compute_orientation()  # float — orientation angle in radians
+kp.compute_shear()        # float
+
+# Rescale by a single factor or separately in x and y
+kp.rescale(scale=2.0)
+kp.rescale(scale_x=2.0, scale_y=1.5)
+```
+
+### Converting between representations
+
+```python
+import pycolmap
+import numpy as np
+
+# Convert FeatureKeypoints list to Nx4 matrix [x, y, scale, orientation]
+matrix = pycolmap.keypoints_to_matrix(keypoints)
+
+# Convert Nx4 matrix back to FeatureKeypoints
+keypoints = pycolmap.keypoints_from_matrix(matrix)
+
+# Convert FeatureMatches to Nx2 matrix
+matrix = pycolmap.matches_to_matrix(matches)
+
+# Convert Nx2 matrix to FeatureMatches
+matches = pycolmap.matches_from_matrix(matrix)
+```
+
+---
+
+## Pipeline: extract_features
+
+```python
+pycolmap.extract_features(
+    database_path,                            # Path — SQLite database (created if absent)
+    image_path,                               # Path — directory of images
+    image_names=[],                           # list[str] — subset of image names; empty = all
+    camera_mode=pycolmap.CameraMode.AUTO,     # camera model assignment strategy
+    reader_options=pycolmap.ImageReaderOptions(),
+    extraction_options=pycolmap.FeatureExtractionOptions(),
+    device=pycolmap.Device.auto,
+)
+```
+
+### FeatureExtractionOptions
+
+```python
+opts = pycolmap.FeatureExtractionOptions()
+
+opts.type           # FeatureExtractorType — SIFT (default), ALIKED_N16ROT, ALIKED_N32
+opts.max_image_size # int — maximum image dimension before downscaling (0 = auto)
+opts.num_threads    # int — number of worker threads
+opts.use_gpu        # bool — set automatically from device argument
+opts.gpu_index      # str — GPU index, e.g. "0" or "0,1"
+opts.sift           # SiftExtractionOptions
+```
+
+### SiftExtractionOptions
+
+```python
+sift = pycolmap.SiftExtractionOptions()
+
+sift.max_num_features      # int — maximum keypoints to retain
+sift.first_octave          # int — first pyramid octave (-1 upsamples by one level)
+sift.num_octaves           # int
+sift.octave_resolution     # int — levels per octave
+sift.peak_threshold        # float — keypoint detection threshold
+sift.edge_threshold        # float — edge filtering threshold
+sift.estimate_affine_shape # bool — estimate affine ellipse shape
+sift.max_num_orientations  # int
+sift.upright               # bool — fix orientation to 0
+sift.darkness_adaptivity   # bool — adapt detection to image brightness (GPU only)
+sift.domain_size_pooling   # bool — DSP-SIFT descriptors
+sift.normalization         # Normalization.L1_ROOT or L2
+```
+
+---
+
+## Pipeline: matching functions
+
+All matching functions write results to the database. Each accepts `matching_options`, `pairing_options`, `verification_options`, and `device`.
+
+### Exhaustive matching
+
+Matches all pairs. Suitable for small datasets.
+
+```python
+pycolmap.match_exhaustive(
+    database_path,
+    matching_options=pycolmap.FeatureMatchingOptions(),
+    pairing_options=pycolmap.ExhaustivePairingOptions(),
+    verification_options=pycolmap.TwoViewGeometryOptions(),
+    device=pycolmap.Device.auto,
+)
+```
+
+### Sequential matching
+
+Matches images against their sequential neighbors. Use for video sequences.
+
+```python
+pycolmap.match_sequential(
+    database_path,
+    matching_options=pycolmap.FeatureMatchingOptions(),
+    pairing_options=pycolmap.SequentialPairingOptions(
+        overlap=10,             # number of neighbors to match
+        quadratic_overlap=True, # also match quadratic-distance neighbors
+        loop_detection=False,   # enable loop closure detection
+        vocab_tree_path="",     # required when loop_detection=True
+    ),
+    device=pycolmap.Device.auto,
+)
+```
+
+### Vocabulary-tree matching
+
+Retrieves the most visually similar images per query using a vocabulary tree.
+
+```python
+pycolmap.match_vocabtree(
+    database_path,
+    matching_options=pycolmap.FeatureMatchingOptions(),
+    pairing_options=pycolmap.VocabTreePairingOptions(
+        vocab_tree_path="/path/to/vocab_tree.bin",
+        num_images=50,                  # top-k retrieved images per query
+        num_nearest_neighbors=5,        # nearest neighbors per feature
+        num_checks=256,                 # ANN check count
+        max_num_features=0,             # 0 = use all
+    ),
+    device=pycolmap.Device.auto,
+)
+```
+
+### Spatial matching
+
+Matches images within a geographic proximity threshold.
+
+```python
+pycolmap.match_spatial(
+    database_path,
+    pairing_options=pycolmap.SpatialPairingOptions(
+        max_num_neighbors=50,    # max neighbors to match
+        max_distance=100.0,      # meters
+        ignore_z=True,           # ignore altitude for 2D GPS coordinates
+    ),
+    device=pycolmap.Device.auto,
+)
+```
+
+### Image-pair matching
+
+Match specific image pairs from a file (one pair per line).
+
+```python
+pycolmap.match_image_pairs(
+    database_path,
+    pairing_options=pycolmap.ImportedPairingOptions(
+        match_list_path="/path/to/pairs.txt",
+    ),
+    device=pycolmap.Device.auto,
+)
+```
+
+### FeatureMatchingOptions
+
+```python
+opts = pycolmap.FeatureMatchingOptions()
+
+opts.type                         # FeatureMatcherType
+opts.num_threads                  # int
+opts.use_gpu                      # bool
+opts.gpu_index                    # str
+opts.max_num_matches              # int — maximum matches per pair
+opts.guided_matching              # bool — refine matches using geometry
+opts.skip_geometric_verification  # bool
+opts.sift                         # SiftMatchingOptions
+```
+
+### SiftMatchingOptions
+
+```python
+sift = pycolmap.SiftMatchingOptions()
+
+sift.max_ratio       # float — Lowe's ratio test threshold (default 0.8)
+sift.max_distance    # float — maximum descriptor distance
+sift.cross_check     # bool — mutual nearest neighbor check
+sift.cpu_brute_force_matcher  # bool — brute force vs. FAISS
+```
+
+---
+
+## Low-level: FeatureExtractor
+
+Extract features from image arrays without going through the database.
+
+```python
+import pycolmap
+import numpy as np
+
+# Create extractor (auto-selects GPU if available)
+extractor = pycolmap.FeatureExtractor.create(
+    options=pycolmap.FeatureExtractionOptions(),
+    device=pycolmap.Device.auto,
+)
+
+# Extract from uint8 array (H, W) or (H, W, 3)
+image_u8 = np.random.randint(0, 256, (480, 640), dtype=np.uint8)
+keypoints, descriptors = extractor.extract_from_uint8_array(image_u8)
+
+# Extract from float32 array with values in [0, 1]
+image_f32 = image_u8.astype(np.float32) / 255.0
+keypoints, descriptors = extractor.extract_from_float32_array(image_f32)
+
+# Extract from a pycolmap.Bitmap
+bitmap = pycolmap.Bitmap.read("/path/to/image.jpg")
+keypoints, descriptors = extractor.extract(bitmap)
+
+print(f"Found {len(keypoints)} keypoints")
+print(f"Descriptors shape: {descriptors.data.shape}")
+```
+
+`keypoints` is a `pycolmap.FeatureKeypoints` list. `descriptors` is a `pycolmap.FeatureDescriptors` object.
+
+---
+
+## Low-level: FeatureMatcher
+
+Match features between two images directly.
+
+```python
+import pycolmap
+
+# Create matcher
+matcher = pycolmap.FeatureMatcher.create(
+    options=pycolmap.FeatureMatchingOptions(),
+    device=pycolmap.Device.auto,
+)
+
+# Match — returns Nx2 matrix of (point2D_idx1, point2D_idx2)
+matches = matcher.match(
+    keypoints1=keypoints1,
+    descriptors1=descriptors1,
+    keypoints2=keypoints2,
+    descriptors2=descriptors2,
+)
+print(f"Matches: {matches.shape[0]}")
+
+# Guided match — refines using existing two-view geometry
+two_view_geom = pycolmap.TwoViewGeometry()
+matcher.match_guided(
+    max_error=4.0,
+    keypoints1=keypoints1,
+    descriptors1=descriptors1,
+    camera1=camera1,
+    keypoints2=keypoints2,
+    descriptors2=descriptors2,
+    camera2=camera2,
+    two_view_geometry=two_view_geom,
+)
+```
+
+---
+
+## Geometric verification
+
+```python
+# Re-run geometric verification on existing matches in the database
+pycolmap.geometric_verification(
+    database_path,
+    verifier_options=pycolmap.GeometricVerifierOptions(),
+    pairing_options=pycolmap.ExistingMatchedPairingOptions(),
+    two_view_geometry_options=pycolmap.TwoViewGeometryOptions(),
+)
+
+# Guided geometric verification using an existing reconstruction
+pycolmap.guided_geometric_verification(
+    reconstruction=reconstruction,
+    database_path=database_path,
+    num_threads=-1,
+)
+
+# Verify matches from a pairs file
+pycolmap.verify_matches(
+    database_path,
+    pairs_path="/path/to/pairs.txt",
+    options=pycolmap.TwoViewGeometryOptions(),
+)
+```
